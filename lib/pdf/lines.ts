@@ -5,6 +5,7 @@ import {
   WORD_GAP_RATIO,
 } from "./config";
 import { centerY, type Piece } from "./extract";
+import { hypuaToJamo } from "./hypua";
 import { formatScripts, scriptKind, type ScriptKind } from "./math";
 
 // bigGaps: 표의 칸 사이처럼 넓은 간격의 개수, maxGap: 가장 넓은 간격 (공백 조각이 채운 곳은 간격이 아니다)
@@ -22,6 +23,12 @@ const FOOTNOTE_MARK = /^[\d\s,*∗†‡§¹²³⁴⁵⁶⁷⁸⁹⁰\-–]+$/;
 // 각주 번호가 붙는 자리: 줄 맨 앞, 긴 영단어·한글·문장부호 뒤 (짧은 변수 뒤의 위첨자는 지수 n²)
 const FOOTNOTE_CONTEXT = /(^|[A-Za-z]{3,}|[가-힣]|[.,;:"'”’\]])\s*$/;
 const EMPTY_BRACKET = /\[\s*\]/g;
+const SIDE_MARK = /^\[[A-Z가-하]\]$/;
+// 구간 표시가 본문과 이만큼(글자 크기 대비) 떨어져 있으면 여백 표시로 본다
+const SIDE_MARK_GAP_RATIO = 1;
+// 한글(HWP) 문서 전용 글꼴의 사용자 정의 영역 문자 중 뜻이 분명한 것을 표준 문자로 바꾼다
+const HWP_PUA: Record<string, string> = { "\u{F0854}": "『", "\u{F0855}": "』", "\u{F00DA}": "예" };
+const HWP_PUA_PATTERN = new RegExp(Object.keys(HWP_PUA).join("|"), "gu");
 const LONE_SYLLABLE_END = /(^|[\s\]])[가-힣]$/;
 const LABEL_ONLY = /^\[[^\]]+\]$/;
 
@@ -56,9 +63,17 @@ export function piecesToLines(pieces: Piece[]): Line[] {
 function toLine(row: Piece[]): Line | null {
   const main = row.reduce((a, b) => (b.fontSize > a.fontSize ? b : a));
   // 빈 괄호([])는 문서 변환 흔적이라 글자와 자리 모두 뺀다
-  const words = [...row]
+  const sorted = [...row]
     .sort((a, b) => a.x - b.x)
     .filter((p) => p.str.replace(EMPTY_BRACKET, "").trim() !== "");
+  // 지문 옆 여백의 [A]·[B] 같은 구간 표시는 본문이 아니다 (넓은 간격으로 떨어져 있거나 혼자 있는 것만)
+  const words = sorted.filter((p, i) => {
+    if (!SIDE_MARK.test(p.str.trim())) return true;
+    const prev = sorted[i - 1];
+    const next = sorted[i + 1];
+    const far = (gap: number) => gap > main.fontSize * SIDE_MARK_GAP_RATIO;
+    return !((!prev || far(p.x - (prev.x + prev.width))) && (!next || far(next.x - (p.x + p.width))));
+  });
   if (words.length === 0) return null;
 
   // 조각 사이 간격과 첨자 여부를 먼저 구한다
@@ -117,7 +132,9 @@ function toLine(row: Piece[]): Line | null {
   const tableGaps = isEven ? [] : gaps;
   const left = kept[0].x;
   return {
-    text: text.replace(/\s+/g, " ").trim(),
+    text: hypuaToJamo(text.replace(HWP_PUA_PATTERN, (ch) => HWP_PUA[ch]))
+      .replace(/\s+/g, " ")
+      .trim(),
     x: left,
     y: main.y,
     width: Math.max(...kept.map((p) => p.x + p.width)) - left,

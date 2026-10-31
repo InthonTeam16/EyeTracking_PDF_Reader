@@ -4,7 +4,9 @@ import {
   COLUMN_MIN_CHARS,
   GUTTER_MIN_RATIO,
   GUTTER_MIN_ROWS,
+  GUTTER_EMPTY_SHARE,
   GUTTER_ROW_RATIO,
+  GUTTER_STRIP_RATIO,
   ROW_ATTACH_RATIO,
 } from "./config";
 import { centerY, type Piece } from "./extract";
@@ -19,7 +21,9 @@ export function layoutPage(pieces: Piece[], bodyFont: number): Piece[][] {
   if (pieces.length === 0) return [];
   const rows = groupRows(pieces);
   const minGap = bodyFont * GUTTER_MIN_RATIO;
-  const gutters = findGutters(rows, minGap);
+  // 단 경계는 일정한 높이의 띠로 잘라 찾는다. 좌우 단의 줄 간격이 달라 줄 높이가 맞지 않아도
+  // 같은 띠 안에 양쪽 단 글이 함께 들어온다.
+  const gutters = findGutters(toStrips(pieces, bodyFont * GUTTER_STRIP_RATIO), minGap);
   if (gutters.length === 0) return [pieces];
 
   const bands: { key: string; active: number[]; pieces: Piece[] }[] = [];
@@ -56,11 +60,36 @@ function continuesWiderBand(row: Piece[], prevRow: Piece[] | null, bandActive: n
   return new Set(row.map(columnOf)).size === 1;
 }
 
+function toStrips(pieces: Piece[], height: number): Piece[][] {
+  const strips = new Map<number, Piece[]>();
+  for (const p of pieces) {
+    const k = Math.floor(centerY(p) / height);
+    strips.set(k, [...(strips.get(k) ?? []), p]);
+  }
+  return [...strips.entries()].sort((a, b) => b[0] - a[0]).map(([, ps]) => ps);
+}
+
 function midX(p: Piece): number {
   return p.x + p.width / 2;
 }
 
 // 행 안에서 minGap 이상 벌어진 구간들 (텍스트 사이의 빈 공간)
+// 선택지·번호 표시(①, 1., [A] 등)
+const MARKER = /^([①-⑳ⓐ-ⓩ㉠-㉻㉮-㉻•·▪◦※○●■□▶]|\(?\d{1,2}[.)]|[A-Za-z가-하][.)]|\[[^\]]{1,3}\])$/;
+
+// 행 안의 칸 사이 간격 수. 번호·선택지 표시 바로 뒤의 간격은 칸이 아니다.
+function cellGapCount(row: Piece[], minGap: number): number {
+  const sorted = [...row].sort((a, b) => a.x - b.x);
+  const segments: string[] = [sorted[0].str];
+  let end = sorted[0].x + sorted[0].width;
+  for (const p of sorted.slice(1)) {
+    if (p.x - end >= minGap) segments.push(p.str);
+    else segments[segments.length - 1] += p.str;
+    end = Math.max(end, p.x + p.width);
+  }
+  return segments.slice(1).filter((_, i) => !MARKER.test(segments[i].trim())).length;
+}
+
 function rowGaps(row: Piece[], minGap: number): [number, number][] {
   const sorted = [...row].sort((a, b) => a.x - b.x);
   const gaps: [number, number][] = [];
@@ -76,24 +105,32 @@ function findGutters(rows: Piece[][], minGap: number): number[] {
   const all = rows.flat();
   const minX = Math.floor(Math.min(...all.map((p) => p.x)));
   const maxX = Math.ceil(Math.max(...all.map((p) => p.x + p.width)));
-  const score = new Array<number>(Math.max(0, maxX - minX)).fill(0);
+  const width = Math.max(0, maxX - minX);
+  // score: 그 위치가 비어 있는 행 수, spanning: 그 위치 양쪽에 글이 있는 행 수
+  const score = new Array<number>(width).fill(0);
+  const spanning = new Array<number>(width).fill(0);
   for (const row of rows) {
-    for (const [from, to] of rowGaps(row, minGap)) {
-      for (let x = Math.ceil(from); x < to; x++) score[x - minX]++;
+    const from = Math.min(...row.map((p) => p.x));
+    const to = Math.max(...row.map((p) => p.x + p.width));
+    for (let x = Math.ceil(from); x < to; x++) spanning[x - minX]++;
+    for (const [gapFrom, gapTo] of rowGaps(row, minGap)) {
+      for (let x = Math.ceil(gapFrom); x < gapTo; x++) score[x - minX]++;
     }
   }
 
-  // 점수가 기준 이상인 x 구간마다 가장 높은 지점(평탄하면 가운데)을 후보로
-  const threshold = Math.max(GUTTER_MIN_ROWS, rows.length * GUTTER_ROW_RATIO);
+  // 양쪽에 글이 있는 행 대부분이 비어 있는 위치를 단 경계 후보로 본다.
+  // (한쪽 단에 그림이 있어 양쪽에 글이 있는 행이 적어도 경계를 찾을 수 있다)
+  const minRows = Math.max(GUTTER_MIN_ROWS, rows.length * GUTTER_ROW_RATIO);
+  const isCandidate = (i: number) => score[i] >= minRows && score[i] >= spanning[i] * GUTTER_EMPTY_SHARE;
   const candidates: number[] = [];
   let x = 0;
   while (x < score.length) {
-    if (score[x] < threshold) {
+    if (!isCandidate(x)) {
       x++;
       continue;
     }
     let end = x;
-    while (end < score.length && score[end] >= threshold) end++;
+    while (end < score.length && isCandidate(end)) end++;
     const run = score.slice(x, end);
     const peak = Math.max(...run);
     const first = run.indexOf(peak);
@@ -133,8 +170,10 @@ function isTextColumns(
     { from: prev ?? -Infinity, to: g, chars: [] as number[], widths: [] as number[] },
     { from: g, to: next ?? Infinity, chars: [] as number[], widths: [] as number[] },
   ];
+  const gapCounts: number[] = [];
   for (const row of rows) {
     if (!isGapAt(row, g, minGap)) continue;
+    gapCounts.push(cellGapCount(row, minGap));
     for (const side of sides) {
       const ps = row.filter((p) => midX(p) > side.from && midX(p) < side.to);
       if (ps.length === 0) continue;
@@ -142,16 +181,14 @@ function isTextColumns(
       side.widths.push(Math.max(...ps.map((p) => p.x + p.width)) - Math.min(...ps.map((p) => p.x)));
     }
   }
-  // 본문 단은 줄의 상당수가 단 폭을 꽉 채운다. 표의 열은 칸마다 길이가 들쭉날쭉하다.
-  // (같은 페이지에 표가 섞여 있어도 본문 단이 걸러지지 않도록 중간값 대신 꽉 찬 줄의 비율을 본다)
+  if (!sides.every((side) => side.chars.length > 0 && median(side.chars) >= COLUMN_MIN_CHARS)) return false;
+  // 행에 넓은 간격이 이 경계 하나뿐이면 다단 본문이다 (시처럼 줄이 짧아도 된다).
+  if (median(gapCounts) <= 1) return true;
+  // 간격이 여럿이면 표일 수 있다. 본문 단(3단 이상)은 줄의 상당수가 단 폭을 꽉 채우고,
+  // 표의 열은 칸마다 길이가 들쭉날쭉하다. (표가 섞인 페이지도 있어 중간값 대신 꽉 찬 줄의 비율을 본다)
   const fullShare = (widths: number[]) =>
     widths.filter((w) => w >= Math.max(...widths) * COLUMN_FULL_LINE_RATIO).length / widths.length;
-  return sides.every(
-    (side) =>
-      side.chars.length > 0 &&
-      median(side.chars) >= COLUMN_MIN_CHARS &&
-      fullShare(side.widths) >= COLUMN_FULL_LINE_SHARE,
-  );
+  return sides.every((side) => fullShare(side.widths) >= COLUMN_FULL_LINE_SHARE);
 }
 
 // 행이 단 경계를 가로지르는지: 경계 위에 걸친 조각이 양쪽으로 충분히 뻗어 있거나,
