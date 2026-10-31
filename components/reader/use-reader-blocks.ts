@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { getPendingPdf } from "@/components/reader/pdf-store";
 import mockBlocks from "@/lib/mock/blocks.json";
+import { isTextFile, textToBlocks } from "@/lib/pdf/textToBlocks";
 import { toBlocks } from "@/lib/pdf/toBlocks";
 import type { Block } from "@/types";
 
@@ -17,8 +18,14 @@ async function loadSample(name: string): Promise<File> {
   return new File([blob], `${name}.pdf`, { type: "application/pdf" });
 }
 
-// 원본 PDF 화면에 쓰려고 블록과 함께 파일도 돌려준다. 목업이면 file은 null.
-export type ReaderDocument = { blocks: Block[]; file: File | null };
+// pdf만 원본 보기가 있고, 원본 PDF 화면에 쓰려고 그 파일(pdf)도 함께 돌려준다.
+// text(TXT)와 sample(목업)은 페이지가 없어 집중 읽기만 쓴다.
+export type ReaderDocument = {
+  kind: "pdf" | "text" | "sample";
+  title: string;
+  blocks: Block[];
+  pdf: File | null;
+};
 
 async function loadDocument(): Promise<ReaderDocument> {
   // 처음 한 번만 읽으면 돼서 useSearchParams 대신 직접 읽는다 (페이지를 정적으로 유지).
@@ -28,14 +35,23 @@ async function loadDocument(): Promise<ReaderDocument> {
       sample && SAMPLE_NAME.test(sample)
         ? await loadSample(sample)
         : getPendingPdf();
-    if (!file) throw new Error("PDF 없음");
+    if (!file) throw new Error("파일 없음");
 
-    const blocks = await toBlocks(file);
+    const text = isTextFile(file);
+    const blocks = text ? await textToBlocks(file) : await toBlocks(file);
     if (blocks.length === 0) throw new Error("블록 없음");
-    return { blocks, file };
-  } catch {
+    return text
+      ? { kind: "text", title: file.name, blocks, pdf: null }
+      : { kind: "pdf", title: file.name, blocks, pdf: file };
+  } catch (error) {
     // TODO(demo): 데모 경로가 끊기지 않도록 실패하면 목업 블록을 보여준다.
-    return { blocks: mockBlocks, file: null };
+    console.warn("문서를 열지 못해 샘플 문서를 보여줍니다.", error);
+    return {
+      kind: "sample",
+      title: "샘플 문서",
+      blocks: mockBlocks,
+      pdf: null,
+    };
   }
 }
 
