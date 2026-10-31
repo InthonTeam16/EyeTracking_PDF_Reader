@@ -4,7 +4,6 @@ import type { Block } from "@/types";
 type ReaderViewProps = {
   blocks: Block[];
   activeBlockId: string | null;
-  onBlockClick?: (blockId: string) => void;
 };
 
 function groupByPage(blocks: Block[]): [number, Block[]][] {
@@ -15,7 +14,7 @@ function groupByPage(blocks: Block[]): [number, Block[]][] {
   return [...pages.entries()];
 }
 
-export function ReaderView({ blocks, activeBlockId, onBlockClick }: ReaderViewProps) {
+export function ReaderView({ blocks, activeBlockId }: ReaderViewProps) {
   // 시선을 아직 못 잡았으면(null) 모든 블록을 선명하게 둔다.
   const focusing = activeBlockId !== null;
 
@@ -32,12 +31,10 @@ export function ReaderView({ blocks, activeBlockId, onBlockClick }: ReaderViewPr
               <p
                 key={block.id}
                 data-block-id={block.id}
-                onClick={onBlockClick && (() => onBlockClick(block.id))}
                 className={cn(
                   "rounded-lg px-4 py-3 text-lg leading-loose transition-[filter,opacity,background-color] duration-300",
                   active && "bg-accent text-accent-foreground ring-1 ring-ring/30",
                   focusing && !active && "opacity-40 blur-[3px]",
-                  onBlockClick && "cursor-pointer",
                 )}
               >
                 {block.text}
