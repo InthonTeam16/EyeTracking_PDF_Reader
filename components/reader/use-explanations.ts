@@ -9,6 +9,9 @@ export type Explanation =
   | { status: "done"; text: string }
   | { status: "error"; message: string };
 
+// 즐겨찾기한 부가 설명. 문서 저장은 범위 밖이라 메모리에만 들고 있는다.
+export type Favorite = { blockId: string; text: string };
+
 async function fetchExplanation(request: ExplainRequest): Promise<string> {
   const res = await fetch("/api/explain", {
     method: "POST",
@@ -27,6 +30,19 @@ export function useExplanations(blocks: Block[]) {
   const [explanations, setExplanations] = useState<Record<string, Explanation>>(
     {},
   );
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+
+  // 설명을 다 받은 블록만 즐겨찾기할 수 있다. 이미 있으면 해제한다.
+  const toggleFavorite = (blockId: string) => {
+    const explanation = explanations[blockId];
+    setFavorites((prev) => {
+      if (prev.some((favorite) => favorite.blockId === blockId))
+        return prev.filter((favorite) => favorite.blockId !== blockId);
+      return explanation?.status === "done"
+        ? [...prev, { blockId, text: explanation.text }]
+        : prev;
+    });
+  };
 
   const open = (blockId: string) => {
     setOpenBlockId(blockId);
@@ -66,5 +82,7 @@ export function useExplanations(blocks: Block[]) {
     open,
     close: () => setOpenBlockId(null),
     closeUnless,
+    favorites,
+    toggleFavorite,
   };
 }
