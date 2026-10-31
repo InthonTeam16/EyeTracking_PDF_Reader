@@ -2,19 +2,14 @@
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 
+import { GAZE_CENTER_READING } from "@/lib/gaze/config";
 import type { GazeState } from "@/types";
 
 // "가운데 고정" 읽기: 읽는 블록을 칸 한가운데에 고정하고, 눈짓으로 한 블록씩 넘긴다.
 // 칸 아래쪽을 보면 다음 블록이 올라와 가운데에 서고, 위쪽을 보면 이전 블록이 내려온다.
 // 시선이 위·아래·가운데 중 어디인지만 알면 돼서 웹캠 좌표 오차에 강하다.
 
-// 칸 높이 대비 이 선보다 아래(위)를 보면 다음(이전) 블록으로 넘길 준비를 한다.
-const NEXT_ZONE = 0.65;
-const PREVIOUS_ZONE = 0.35;
-// 넘길 쪽을 이 시간(ms) 동안 계속 봐야 넘긴다. 잠깐 눈길로는 넘어가지 않는다.
-const GLANCE_MS = 350;
-// 넘긴 뒤에는 눈이 가운데로 돌아와야 다시 넘긴다. 계속 같은 쪽을 보고 있으면 이 간격(ms)마다 넘긴다.
-const REPEAT_MS = 1200;
+const { nextZone, previousZone, glanceMs, repeatMs } = GAZE_CENTER_READING;
 // 분할 보기에서 어느 칸을 보는지: 시선 가로 위치가 칸 경계에서 화면 폭의 이 비율만큼
 // 확실히 넘어간 상태가 PANE_SWITCH_MS 이어질 때만 바꾼다. 웹캠 가로 오차(화면 폭 7~10%)를 고려했다.
 const PANE_MARGIN = 0.08;
@@ -156,9 +151,9 @@ export function useCenterReading(
       // 얼굴을 놓치거나 칸 밖·원본 PDF를 보면 넘기지 않는다.
       const ratio = inside ? (target.y - view.top) / view.height : 0.5;
       const current =
-        ratio > NEXT_ZONE
+        ratio > nextZone
           ? "next"
-          : ratio < PREVIOUS_ZONE
+          : ratio < previousZone
             ? "previous"
             : "middle";
 
@@ -167,8 +162,8 @@ export function useCenterReading(
         since = now;
         if (zone === "middle") lastStep = 0;
       }
-      if (zone === "middle" || now - since < GLANCE_MS) return;
-      if (lastStep !== 0 && now - lastStep < REPEAT_MS) return;
+      if (zone === "middle" || now - since < glanceMs) return;
+      if (lastStep !== 0 && now - lastStep < repeatMs) return;
 
       lastStep = now;
       const count = blockElements(container).length;
