@@ -17,6 +17,7 @@ import {
   GAZE_ONE_EURO,
   GAZE_PITCH_Y_PER_DEGREE,
   GAZE_POINT_UPDATE_MS,
+  GAZE_POSTURE,
   GAZE_RIDGE_LAMBDA,
   GAZE_SMOOTHING_SAMPLES,
   GAZE_TRACKER,
@@ -36,7 +37,15 @@ import {
 import { startFaceTracking } from "@/lib/gaze/faceTracking";
 import { findBlockId } from "@/lib/gaze/findBlockId";
 import { extractGeometricFeatures } from "@/lib/gaze/geometricGaze";
+import { headPoseFromMatrix, type HeadPose } from "@/lib/gaze/headPose";
 import { createOneEuroFilter } from "@/lib/gaze/oneEuro";
+import {
+  averagePose,
+  createPostureMonitor,
+  faceFrameFrom,
+  type FaceFrame,
+  type Posture,
+} from "@/lib/gaze/posture";
 import { createSquintDetector } from "@/lib/gaze/squint";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
 import {
@@ -143,6 +152,10 @@ export function useGaze(
   recalibrate: () => void;
   // 다시 보정을 취소하고 이전 보정으로 돌아간다. 돌아갈 보정이 없으면 false.
   cancelRecalibrate: () => boolean;
+  // 보정 때 자세와의 차이. 개인 보정 전이나 얼굴이 안 보이면 null.
+  posture: Posture | null;
+  // 영상 안 얼굴 위치 (카메라 화면의 얼굴 위치 가이드). 얼굴이 안 보이면 null.
+  faceFrame: FaceFrame | null;
 } {
   const baseSamples = samples ?? PRETRAINED_SAMPLES;
   const usesPretrained =
@@ -150,6 +163,11 @@ export function useGaze(
   const [gaze, setGaze] = useState<FaceGaze>(NO_GAZE);
   const [trained, setTrained] = useState(false);
   const [status, setStatus] = useState<GazeStatus>({ phase: "loading" });
+  const [posture, setPosture] = useState<Posture | null>(null);
+  const [faceFrame, setFaceFrame] = useState<FaceFrame | null>(null);
+  // 보정 점을 누를 때의 자세들과 그 평균(기준 자세)
+  const calibrationPosesRef = useRef<HeadPose[]>([]);
+  const basePoseRef = useRef<HeadPose | null>(null);
   const samplesRef = useRef<GazeSample[]>([]);
   const modelRef = useRef<GazeModel | null>(null);
   const usesPretrainedRef = useRef(usesPretrained);
@@ -160,6 +178,7 @@ export function useGaze(
     model: GazeModel;
     samples: GazeSample[];
     offset: { x: number; y: number };
+    basePose: HeadPose | null;
   } | null>(null);
 
   useEffect(() => {
@@ -176,6 +195,8 @@ export function useGaze(
       : null;
     offsetRef.current = { x: 0, y: 0 };
     samplesRef.current = [];
+    calibrationPosesRef.current = [];
+    basePoseRef.current = null;
     previousRef.current = null;
   }, [baseSamples, usesPretrained, guided, geometric]);
 
@@ -185,13 +206,17 @@ export function useGaze(
         model: modelRef.current,
         samples: samplesRef.current,
         offset: offsetRef.current,
+        basePose: basePoseRef.current,
       };
     }
     samplesRef.current = [];
+    calibrationPosesRef.current = [];
+    basePoseRef.current = null;
     modelRef.current = null;
     offsetRef.current = { x: 0, y: 0 };
     setTrained(false);
     setGaze(NO_GAZE);
+    setPosture(null);
     setStatus((current) =>
       current.phase === "tracking" ? { ...current, clicks: 0 } : current,
     );
@@ -204,6 +229,8 @@ export function useGaze(
     modelRef.current = previous.model;
     samplesRef.current = previous.samples;
     offsetRef.current = previous.offset;
+    basePoseRef.current = previous.basePose;
+    calibrationPosesRef.current = [];
     setTrained(true);
     setStatus((current) =>
       current.phase === "tracking"
@@ -219,6 +246,9 @@ export function useGaze(
 
   useEffect(() => {
     let recentFeatures: number[][] = [];
+    let recentPoses: HeadPose[] = [];
+    const postureMonitor = createPostureMonitor(GAZE_POSTURE);
+    let lastPostureUpdate = -Infinity;
     let faceVisible = false;
     const reading = model === "reading";
     const smoother = createPointSmoother(GAZE_SMOOTHING_SAMPLES);
@@ -272,6 +302,12 @@ export function useGaze(
           y: event.clientY / window.innerHeight,
         },
       ].slice(-GAZE_MAX_TRAINING_CLICKS);
+      if (!correcting && recentPoses.length > 0) {
+        calibrationPosesRef.current = [
+          ...calibrationPosesRef.current,
+          averagePose(recentPoses),
+        ];
+      }
       reportTracking();
 
       if (usesPretrainedRef.current && modelRef.current) {
@@ -295,6 +331,9 @@ export function useGaze(
         : GAZE_MIN_TRAINING_CLICKS;
       if (samplesRef.current.length < minClicks) return;
       modelRef.current = fitModel(samplesRef.current, guided, geometric);
+      if (calibrationPosesRef.current.length > 0) {
+        basePoseRef.current = averagePose(calibrationPosesRef.current);
+      }
       previousRef.current = null;
       setTrained(true);
     };
@@ -317,15 +356,31 @@ export function useGaze(
         }
         if (!landmarks || !matrix) {
           recentFeatures = [];
+          recentPoses = [];
           smoother.reset();
           filter.reset();
           squint.reset();
+          postureMonitor.reset();
           activeBlockId = null;
           setGaze(NO_GAZE);
+          setPosture(null);
+          setFaceFrame(null);
           return;
         }
 
         const now = performance.now();
+        const pose = headPoseFromMatrix(matrix.data);
+        recentPoses = [...recentPoses, pose].slice(-GAZE_FEATURE_AVERAGE_FRAMES);
+        const basePose = basePoseRef.current;
+        if (!basePose) postureMonitor.reset();
+        const nextPosture = basePose
+          ? postureMonitor.add(basePose, pose, now)
+          : null;
+        if (now - lastPostureUpdate >= GAZE_POSTURE.updateMs) {
+          lastPostureUpdate = now;
+          setPosture(nextPosture);
+          setFaceFrame(faceFrameFrom(landmarks, pose));
+        }
         const blendshapes = result.faceBlendshapes[0]?.categories ?? [];
         // 찡그리면 눈이 가늘어져 시선 입력이 없을 수 있어 먼저 본다.
         if (squint.add(blendshapes, now) && activeBlockId)
@@ -395,6 +450,8 @@ export function useGaze(
       document.removeEventListener("click", handleClick, true);
       // 돌아왔을 때 첫 프레임 전까지 나가기 직전 시선이 남아 있지 않게 한다.
       setGaze(NO_GAZE);
+      setPosture(null);
+      setFaceFrame(null);
     };
   }, [guided, model, eyeLook, geometric, defer]);
 
@@ -406,5 +463,7 @@ export function useGaze(
     status,
     recalibrate,
     cancelRecalibrate,
+    posture,
+    faceFrame,
   };
 }

@@ -37,6 +37,8 @@ import {
   type ReaderDocument,
 } from "@/components/reader/use-reader-blocks";
 import { CalibrationOverlay } from "@/components/gaze/CalibrationOverlay";
+import { CameraGuide } from "@/components/gaze/FaceGuide";
+import { PostureNotice } from "@/components/gaze/PostureNotice";
 import { GAZE_CALIBRATION_POINTS } from "@/lib/gaze/config";
 import {
   useGaze,
@@ -44,6 +46,7 @@ import {
   type GazeStatus,
 } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
+import type { PostureIssue } from "@/lib/gaze/posture";
 import { cn } from "@/lib/utils";
 import type { GazeEvents, GazeState } from "@/types";
 
@@ -144,7 +147,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
     gaze: GazeState,
     message: string,
     onPdf: boolean,
-    onRecalibrate?: () => void,
+    webcam?: CalibratedWebcam,
   ) => {
     // 분할 보기에서 원본 PDF를 보는 중이면 어느 칸을 보는지와 읽기가 멈췄다는 걸 보여준다.
     const viewingPdf = split && onPdf;
@@ -171,7 +174,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
           onSwapPanes={() => setPdfFirst((prev) => !prev)}
           gazeMode={gazeMode}
           onGazeModeToggle={toggleGazeMode}
-          onRecalibrate={onRecalibrate}
+          onRecalibrate={webcam?.recalibrate}
           settings={
             <ReaderSettingsButton
               settings={settings}
@@ -232,6 +235,15 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
               </div>
               <StepTimer timerRef={stepTimerRef} />
               <ReadingPausedBadge visible={viewingPdf} />
+              {webcam?.postureIssue && (
+                // 칸 위아래 구역을 보면 블록이 넘어가므로, 안내를 읽어도 넘어가지 않게 가운데 구역에 띄운다.
+                <div className="absolute inset-x-6 top-[66%] z-20 mx-auto max-w-2xl">
+                  <PostureNotice
+                    issue={webcam.postureIssue}
+                    onRecalibrate={webcam.recalibrate}
+                  />
+                </div>
+              )}
             </div>
             <ReadingProgress {...progress} />
           </section>
@@ -447,8 +459,14 @@ type GazeSourceProps = {
     gaze: GazeState,
     message: string,
     onPdf: boolean,
-    onRecalibrate?: () => void,
+    webcam?: CalibratedWebcam,
   ) => ReactNode;
+};
+
+// 보정을 마친 웹캠 모드에서만 있는 값
+type CalibratedWebcam = {
+  recalibrate: () => void;
+  postureIssue: PostureIssue | null;
 };
 
 // 읽는 블록 기준으로 설명 타이머를 재고, 블록이 바뀌면 알린다.
@@ -535,16 +553,25 @@ function WebcamGaze({
         <CalibrationOverlay
           clicks={status.clicks}
           faceVisible={status.faceVisible}
+          faceGuide={{ face: gaze.faceFrame }}
           onCancel={() => {
             if (!gaze.cancelRecalibrate()) onFail();
           }}
         />
       )}
+      {status.phase === "tracking" && gaze.calibrated && (
+        <CameraGuide box="mini" face={gaze.faceFrame} />
+      )}
       {render(
         { ...gaze, activeBlockId },
         describeWebcam(gaze.status, gaze.calibrated),
         gaze.calibrated && !lookingAtText,
-        gaze.calibrated ? gaze.recalibrate : undefined,
+        gaze.calibrated
+          ? {
+              recalibrate: gaze.recalibrate,
+              postureIssue: gaze.posture?.issue ?? null,
+            }
+          : undefined,
       )}
     </>
   );
