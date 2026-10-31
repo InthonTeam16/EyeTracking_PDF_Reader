@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FACE_MESH_PATH } from "@/lib/gaze/config";
+import { FACE_MESH_PATH, GAZE_SMOOTHING_SAMPLES } from "@/lib/gaze/config";
 import { findBlockId } from "@/lib/gaze/findBlockId";
+import { createPointSmoother } from "@/lib/gaze/smoothing";
 import { useDwell } from "@/lib/gaze/useDwell";
 import type { GazeEvents, GazeState } from "@/types";
 
@@ -16,6 +17,7 @@ export function useGaze(events: GazeEvents): GazeState {
   useEffect(() => {
     let cancelled = false;
     let stop: (() => void) | null = null;
+    const smoother = createPointSmoother(GAZE_SMOOTHING_SAMPLES);
 
     async function start() {
       // 소스 진입점은 @mediapipe/face_mesh를 번들링하지 못해 사전 빌드본을 쓴다.
@@ -28,10 +30,11 @@ export function useGaze(events: GazeEvents): GazeState {
       webgazer.showPredictionPoints(false);
       webgazer.setGazeListener((data) => {
         if (!data) {
+          smoother.reset();
           setGaze(NO_GAZE);
           return;
         }
-        const point = { x: Math.round(data.x), y: Math.round(data.y) };
+        const point = smoother.add({ x: data.x, y: data.y });
         setGaze({ point, activeBlockId: findBlockId(point.x, point.y) });
       });
 
@@ -42,10 +45,17 @@ export function useGaze(events: GazeEvents): GazeState {
         throw error;
       }
 
-      // end()는 웹캠과 마우스 리스너를 정리하지 않아서 따로 해제한다.
+      // 기본 리스너는 커서 이동까지 학습해 시선이 커서를 따라가므로 클릭만 학습한다.
+      webgazer.removeMouseEventListeners();
+      const handleClick = (event: MouseEvent) => {
+        webgazer.recordScreenPosition(event.clientX, event.clientY, "click");
+      };
+      document.addEventListener("click", handleClick, true);
+
+      // end()는 웹캠을 끄지 않아서 따로 해제한다.
       stop = () => {
         webgazer.clearGazeListener();
-        webgazer.removeMouseEventListeners();
+        document.removeEventListener("click", handleClick, true);
         webgazer.stopVideo();
         webgazer.end();
       };

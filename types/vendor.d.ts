@@ -11,6 +11,7 @@ declare module "webgazer/dist/webgazer.commonjs2.js" {
     setGazeListener(listener: GazeListener): WebGazer;
     clearGazeListener(): WebGazer;
     removeMouseEventListeners(): WebGazer;
+    recordScreenPosition(x: number, y: number, eventType: "click"): WebGazer;
     begin(onFail?: () => void): Promise<WebGazer>;
     stopVideo(): WebGazer;
     end(): WebGazer;
