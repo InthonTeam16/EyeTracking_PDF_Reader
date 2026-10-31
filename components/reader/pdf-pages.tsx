@@ -78,10 +78,11 @@ function scrollToPage(
   container: HTMLElement | null,
   pages: (HTMLElement | null)[],
   page: number,
+  behavior: ScrollBehavior = "smooth",
 ) {
   const target = pages[page - 1];
   if (!container || !target) return;
-  container.scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
+  container.scrollTo({ top: target.offsetTop - 16, behavior });
 }
 
 // PDF 뷰어의 손 도구처럼 화면을 잡고 끌어서 움직인다.
@@ -135,6 +136,8 @@ type PdfPagesProps = {
   file: File;
   // 켜면 지금 읽는 블록(highlight) 위치를 따라 스크롤한다 (집중 읽기와 동기화).
   follow: boolean;
+  // 이 값이 바뀌면 follow와 상관없이 읽는 위치를 한 번 보여준다 (보기 방식을 바꿀 때).
+  revealKey?: string;
   // 페이지 목록을 둘 쪽. 분할 보기에서 PDF가 왼쪽이면 화면 바깥쪽인 왼쪽에 둔다.
   thumbnailsSide?: "left" | "right";
   // 지금 읽는 블록과 형광펜 색 클래스. className이 null이면 위치만 따라가고 칠하지 않는다.
@@ -152,6 +155,7 @@ type PdfPagesProps = {
 export function PdfPages({
   file,
   follow,
+  revealKey,
   thumbnailsSide = "right",
   highlight = null,
   inverted = false,
@@ -271,14 +275,14 @@ export function PdfPages({
       : firstLine?.boxes[0]
         ? `${firstLine.page}:${firstLine.boxes[0].top}`
         : `page:${followPage}`;
-  useEffect(() => {
+  const showReadingLine = (behavior: ScrollBehavior) => {
     const container = scrollRef.current;
-    if (!follow || !doc || !shown || !container || !followKey) return;
-    if (followKey === "pending") return;
+    if (!container) return;
     const line = firstLine?.boxes[0];
     const pageElement = firstLine ? pageRefs.current[firstLine.page - 1] : null;
     if (!line || !pageElement) {
-      if (followPage) scrollToPage(container, pageRefs.current, followPage);
+      if (followPage)
+        scrollToPage(container, pageRefs.current, followPage, behavior);
       return;
     }
     const y = pageElement.offsetTop + line.top * pageElement.offsetHeight;
@@ -288,10 +292,27 @@ export function PdfPages({
       y < top + height * FOLLOW_BAND_TOP ||
       y > top + height * FOLLOW_BAND_BOTTOM
     )
-      container.scrollTo({
-        top: y - height * FOLLOW_TARGET,
-        behavior: "smooth",
-      });
+      container.scrollTo({ top: y - height * FOLLOW_TARGET, behavior });
+  };
+
+  // 보기 방식을 바꾸거나 칸 폭이 달라지면 읽는 위치를 바로 보여준다. 칸 폭은 조금 늦게 반영되고
+  // 그때 페이지 크기도 바뀌므로, 위치를 찾고 페이지가 보일 때까지 기다렸다가 한 번만 옮긴다.
+  const revealPending = useRef(false);
+  useEffect(() => {
+    revealPending.current = true;
+  }, [revealKey, containerWidth]);
+  useEffect(() => {
+    if (!revealPending.current || !doc || !shown || !followKey) return;
+    if (followKey === "pending") return;
+    revealPending.current = false;
+    showReadingLine("auto");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealKey, containerWidth, doc, shown, followKey]);
+
+  useEffect(() => {
+    if (!follow || !doc || !shown || !followKey) return;
+    if (followKey === "pending") return;
+    showReadingLine("smooth");
     // followKey가 바뀔 때만 움직인다 (같은 줄을 보는 동안 다시 스크롤하지 않게).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [follow, doc, shown, followKey]);
@@ -598,7 +619,9 @@ function PdfCanvas({
 }: PdfCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [renderedHeight, setRenderedHeight] = useState<number | null>(null);
+  // 페이지의 실제 세로/가로 비율. 폭이 바뀌면 새 그림이 나오기 전에도 높이를 바로 맞춰,
+  // 읽는 위치 계산이 옛 높이로 어긋나지 않게 한다.
+  const [renderedRatio, setRenderedRatio] = useState<number | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -648,7 +671,7 @@ function PdfCanvas({
         .then(() => {
           if (cancelled) return;
           hostRef.current?.replaceChildren(canvas);
-          setRenderedHeight(viewport.height);
+          setRenderedRatio(viewport.height / viewport.width);
         })
         // 크기가 바뀌어 취소된 렌더는 에러로 끝나므로 무시한다.
         .catch(() => {});
@@ -664,7 +687,7 @@ function PdfCanvas({
     <div
       ref={hostRef}
       // 페이지 크기는 PDF마다 달라 Tailwind 클래스로 정할 수 없다.
-      style={{ width, height: renderedHeight ?? height }}
+      style={{ width, height: renderedRatio ? width * renderedRatio : height }}
       // 색을 뒤집고 색상만 반 바퀴 돌려 그림·컬러 글자는 원래 색에 가깝게 둔다.
       className={cn("overflow-hidden", inverted && "invert hue-rotate-180")}
     />

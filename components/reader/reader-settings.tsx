@@ -40,7 +40,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   lineHeight: "normal",
   focus: 3,
   explain: true,
-  syncPdf: false,
+  syncPdf: true,
   pdfHighlightColor: "yellow",
   darkPdf: true,
 };
@@ -86,7 +86,7 @@ const HIGHLIGHT_SWATCHES: { value: HighlightColor; label: string }[] = [
 ];
 
 // 설정 모양을 바꾸면 버전을 올려 예전에 저장된 설정 대신 새 기본값으로 시작하게 한다.
-const STORAGE_KEY = "reader-settings-v3";
+const STORAGE_KEY = "reader-settings-v4";
 
 // 다시 열어도 같은 설정으로 읽도록 이 브라우저에만 저장한다.
 export function useReaderSettings() {
