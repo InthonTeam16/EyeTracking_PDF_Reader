@@ -32,6 +32,10 @@ const SENTENCE_END = /[.!?。…"'”’)\]]$/;
 // 경계에서 이을지 판단할 때는 마침표 없이 끝난 한국어 문장(~다, ~요)도 끝난 것으로 본다
 const PARAGRAPH_END = /[.!?。…"'”’)\]다요]$/;
 const PAGE_NUMBER = /^[-–—\s]*\d+(\s*\/\s*\d+)?[-–—\s]*$/;
+// "[페이지] 012", "Page 3" 같은 쪽 표시는 본문 중간에 있어도 지운다
+const PAGE_LABEL = /^[[(]?\s*(페이지|쪽|page|p\.?)\s*[\])]?\s*[-–]?\s*\d+\s*$/i;
+// 새 항목의 시작: [화자] 표시, 목록 기호, 번호 ([12] 같은 인용 번호는 제외)
+const ITEM_START = /^(\[[^\]\d\s][^\]]{0,14}\]|[•·▪◦‣※○●■□▶-]\s|\d{1,2}[.)]\s|\(\d{1,2}\)\s|[①-⑳]|[가-하][.)]\s)/;
 
 // pages[i]는 i+1페이지의 내용
 export function pagesToBlocks(pages: PageContent[]): Block[] {
@@ -116,6 +120,7 @@ function removeRunningLines(pages: FlowLine[][][]): FlowLine[][][] {
     flows
       .map((lines) =>
         lines.filter((line, i) => {
+          if (PAGE_LABEL.test(line.text)) return false;
           if (i !== 0 && i !== lines.length - 1) return true;
           if (PAGE_NUMBER.test(line.text)) return false;
           return (edgeCount.get(key(line)) ?? 0) < minPages;
@@ -159,7 +164,8 @@ function splitParagraphs(
     text: line.text,
     fontSize: line.fontSize,
     endFontSize: line.fontSize,
-    indented: isIndented(line),
+    // 새 항목으로 시작하는 문단은 들여쓴 문단처럼 앞 문단과 잇지 않는다
+    indented: isIndented(line) || ITEM_START.test(line.text),
     boundary,
   });
 
@@ -178,7 +184,8 @@ function splitParagraphs(
       (SENTENCE_END.test(prev.text) && prev.width < maxWidth * SHORT_LINE_RATIO) ||
       prev.width < maxWidth * VERY_SHORT_LINE_RATIO ||
       isFirstLineIndent(i) ||
-      isOutdent(i);
+      isOutdent(i) ||
+      ITEM_START.test(line.text);
 
     if (isBreak) {
       paragraphs.push(start(line, removedBetween));

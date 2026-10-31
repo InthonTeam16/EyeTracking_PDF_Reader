@@ -3,6 +3,8 @@
 
 // 조각 사이에 공백을 넣을 가로 간격 (글자 크기 대비)
 export const WORD_GAP_RATIO = 0.15;
+// 한글 낱자 사이가 이보다 넓으면 균등 배분(산   쵸)으로 보고 붙인다 (글자 크기 대비, 양쪽 정렬 줄은 제외)
+export const LETTER_SPACED_GAP_RATIO = 1.5;
 // 같은 줄로 볼 세로 중심 차이 (글자 크기 대비)
 export const ROW_CENTER_TOLERANCE = 0.5;
 
@@ -70,5 +72,5 @@ export const RUNNING_LINE_PAGE_RATIO = 0.5;
 
 // 이보다 짧은 블록은 다음 블록에 붙인다 (제목 등)
 export const MIN_BLOCK_CHARS = 40;
-// 이보다 긴 블록은 문장 경계에서 나눈다
-export const MAX_BLOCK_CHARS = 600;
+// 이보다 긴 블록은 문장 경계에서 나눈다 (화면에서 3~5줄, 시선이 한 블록에 머무는 시간 기준)
+export const MAX_BLOCK_CHARS = 250;
