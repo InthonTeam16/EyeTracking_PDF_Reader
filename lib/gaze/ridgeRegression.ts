@@ -92,28 +92,33 @@ export function fitGazeModel(samples: GazeSample[], lambda: number): GazeModel {
   };
 }
 
-// 한 입력값이 세로 좌표에 주는 영향을 정해 두고 나머지 입력값만 학습한다.
-export function fitGazeModelWithFixedY(
+export type FixedInput = { index: number; axis: "x" | "y"; perUnit: number };
+
+// 일부 입력값이 좌표에 주는 영향을 정해 두고 나머지 입력값만 학습한다.
+export function fitGazeModelWithFixedInputs(
   samples: GazeSample[],
   lambda: number,
-  featureIndex: number,
-  yPerUnit: number,
+  fixed: FixedInput[],
 ): GazeModel {
   const rest = (features: number[]) =>
-    features.filter((_, index) => index !== featureIndex);
+    features.filter((_, index) => !fixed.some((input) => input.index === index));
+  const effect = (features: number[], axis: "x" | "y") =>
+    fixed
+      .filter((input) => input.axis === axis)
+      .reduce((sum, input) => sum + input.perUnit * features[input.index], 0);
   const model = fitGazeModel(
     samples.map((sample) => ({
       features: rest(sample.features),
-      x: sample.x,
-      y: sample.y - yPerUnit * sample.features[featureIndex],
+      x: sample.x - effect(sample.features, "x"),
+      y: sample.y - effect(sample.features, "y"),
     })),
     lambda,
   );
   return (features) => {
     const predicted = model(rest(features));
     return {
-      x: predicted.x,
-      y: predicted.y + yPerUnit * features[featureIndex],
+      x: predicted.x + effect(features, "x"),
+      y: predicted.y + effect(features, "y"),
     };
   };
 }

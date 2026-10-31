@@ -10,6 +10,7 @@ const EYES = [
 // extractGazeFeatures가 반환하는 배열의 구성
 export const IRIS_FEATURE_INDICES = [0, 1];
 export const HEAD_FEATURE_INDICES = [2, 3];
+export const YAW_FEATURE_INDEX = 2;
 export const PITCH_FEATURE_INDEX = 3;
 
 function center(points: Landmark[]): Landmark {
