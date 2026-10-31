@@ -24,7 +24,7 @@ import type { Block } from "@/types";
 
 type SampleSet = { name: string; samples: GazeSample[] };
 
-const FEATURE_COUNT = 10;
+const FEATURE_COUNT = 4;
 // 샘플 PDF를 읽을 때와 같은 화면에서 시험한다.
 const blocks: Block[] = mockBlocks;
 

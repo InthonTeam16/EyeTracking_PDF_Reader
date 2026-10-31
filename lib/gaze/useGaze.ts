@@ -6,17 +6,21 @@ import {
   GAZE_FEATURE_AVERAGE_FRAMES,
   GAZE_MAX_TRAINING_CLICKS,
   GAZE_MIN_TRAINING_CLICKS,
+  GAZE_PITCH_Y_PER_DEGREE,
   GAZE_RIDGE_LAMBDA,
   GAZE_SMOOTHING_SAMPLES,
   MIN_EYE_OPEN_RATIO,
 } from "@/lib/gaze/config";
-import { extractGazeFeatures } from "@/lib/gaze/faceFeatures";
+import {
+  extractGazeFeatures,
+  PITCH_FEATURE_INDEX,
+} from "@/lib/gaze/faceFeatures";
 import { startFaceTracking } from "@/lib/gaze/faceTracking";
 import { findBlockId } from "@/lib/gaze/findBlockId";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
 import {
   computeOffset,
-  fitGazeModel,
+  fitGazeModelWithFixedY,
   type GazeModel,
   type GazeSample,
 } from "@/lib/gaze/ridgeRegression";
@@ -37,6 +41,16 @@ export type GazeStatus =
       clicks: number;
       usesPretrained: boolean;
     };
+
+// 고개를 들고 같은 점을 본 데이터로는 상하 각도의 영향이 학습되지 않아 값을 정해 둔다.
+function fitModel(samples: GazeSample[]): GazeModel {
+  return fitGazeModelWithFixedY(
+    samples,
+    GAZE_RIDGE_LAMBDA,
+    PITCH_FEATURE_INDEX,
+    GAZE_PITCH_Y_PER_DEGREE,
+  );
+}
 
 function averageFeatures(frames: number[][]): number[] {
   return frames[0].map(
@@ -73,9 +87,7 @@ export function useGaze(
 
   useEffect(() => {
     usesPretrainedRef.current = usesPretrained;
-    modelRef.current = usesPretrained
-      ? fitGazeModel(baseSamples, GAZE_RIDGE_LAMBDA)
-      : null;
+    modelRef.current = usesPretrained ? fitModel(baseSamples) : null;
     offsetRef.current = { x: 0, y: 0 };
     samplesRef.current = [];
   }, [baseSamples, usesPretrained]);
@@ -118,7 +130,7 @@ export function useGaze(
         return;
       }
       if (samplesRef.current.length < GAZE_MIN_TRAINING_CLICKS) return;
-      modelRef.current = fitGazeModel(samplesRef.current, GAZE_RIDGE_LAMBDA);
+      modelRef.current = fitModel(samplesRef.current);
       setTrained(true);
     };
 
@@ -132,11 +144,13 @@ export function useGaze(
       },
       onFrame: (result, video) => {
         const [landmarks] = result.faceLandmarks;
-        if (Boolean(landmarks) !== faceVisible) {
-          faceVisible = Boolean(landmarks);
+        const [matrix] = result.facialTransformationMatrixes;
+        const visible = Boolean(landmarks && matrix);
+        if (visible !== faceVisible) {
+          faceVisible = visible;
           reportTracking();
         }
-        if (!landmarks) {
+        if (!landmarks || !matrix) {
           recentFeatures = [];
           smoother.reset();
           setGaze(NO_GAZE);
@@ -148,6 +162,7 @@ export function useGaze(
           video.videoWidth,
           video.videoHeight,
           MIN_EYE_OPEN_RATIO,
+          matrix.data,
         );
         // 눈을 깜빡이는 동안에는 직전 시선을 유지한다.
         if (!features) return;

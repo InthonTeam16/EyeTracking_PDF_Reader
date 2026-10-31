@@ -100,6 +100,7 @@ export function useGazeCollector(condition: string) {
           video.videoWidth,
           video.videoHeight,
           MIN_EYE_OPEN_RATIO,
+          frame.matrix,
         );
         if (!eyesOpen) return;
         recentFrames = [...recentFrames, frame].slice(

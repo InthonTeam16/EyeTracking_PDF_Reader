@@ -1,14 +1,16 @@
+import { headPoseFromMatrix } from "@/lib/gaze/headPose";
+
 type Landmark = { x: number; y: number };
 
 const EYES = [
   { outer: 33, inner: 133, top: 159, bottom: 145, iris: [469, 470, 471, 472] },
   { outer: 263, inner: 362, top: 386, bottom: 374, iris: [474, 475, 476, 477] },
 ];
-const NOSE_TIP = 1;
 
 // extractGazeFeatures가 반환하는 배열의 구성
-export const IRIS_FEATURE_INDICES = [0, 1, 2, 3];
-export const HEAD_FEATURE_INDICES = [4, 5, 6, 7, 8, 9];
+export const IRIS_FEATURE_INDICES = [0, 1];
+export const HEAD_FEATURE_INDICES = [2, 3];
+export const PITCH_FEATURE_INDEX = 3;
 
 function center(points: Landmark[]): Landmark {
   return {
@@ -23,6 +25,7 @@ export function extractGazeFeatures(
   width: number,
   height: number,
   minEyeOpenRatio: number,
+  matrix: number[],
 ): number[] | null {
   // 정규화 좌표는 가로세로 비율이 달라 각도와 거리를 재려면 픽셀로 바꿔야 한다.
   const at = (index: number): Landmark => ({
@@ -56,27 +59,9 @@ export function extractGazeFeatures(
     );
   }
 
-  const [firstEye, secondEye] = EYES.map((eye) =>
-    center([at(eye.outer), at(eye.inner)]),
-  );
-  const eyesCenter = center([firstEye, secondEye]);
-  const eyeLineX = secondEye.x - firstEye.x;
-  const eyeLineY = secondEye.y - firstEye.y;
-  const eyeDistanceSquared = eyeLineX * eyeLineX + eyeLineY * eyeLineY;
-  if (eyeDistanceSquared === 0) return null;
-
-  // 눈 사이 중점에서 코끝까지의 거리로 고개 돌림(좌우)과 끄덕임(상하)을 근사한다.
-  const nose = at(NOSE_TIP);
-  const noseX = nose.x - eyesCenter.x;
-  const noseY = nose.y - eyesCenter.y;
-
-  return [
-    ...irisFeatures,
-    (noseX * eyeLineX + noseY * eyeLineY) / eyeDistanceSquared,
-    (noseY * eyeLineX - noseX * eyeLineY) / eyeDistanceSquared,
-    Math.atan2(eyeLineY, eyeLineX),
-    eyesCenter.x / width,
-    eyesCenter.y / height,
-    Math.sqrt(eyeDistanceSquared) / width,
-  ];
+  // 눈 하나만 믿으면 작은 떨림이 시선을 크게 흔들어 양쪽을 평균한다.
+  // 눈꼬리 축이 두 눈에서 반대 방향이라 빼야 같은 방향이 된다.
+  const [firstX, firstY, secondX, secondY] = irisFeatures;
+  const { yaw, pitch } = headPoseFromMatrix(matrix);
+  return [(firstX - secondX) / 2, (firstY - secondY) / 2, yaw, pitch];
 }
