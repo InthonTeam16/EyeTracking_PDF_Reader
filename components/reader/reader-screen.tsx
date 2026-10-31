@@ -384,7 +384,8 @@ function GazeNotice({ mode, message }: { mode: GazeMode; message: string }) {
   );
 }
 
-// 눈짓으로 넘기기까지 남은 시간. 시선이 있는 쪽(칸 위나 아래) 가장자리에 차오른다.
+// 눈짓으로 넘기기까지 남은 시간. 시선이 있는 쪽(칸 위나 아래) 가장자리에 가운데에서 양쪽으로 차오른다.
+// 읽기를 방해하지 않게 트랙 없이 얇은 선만 두고, 양 끝은 흐리게 한다.
 // 값은 useCenterReading이 data-side와 --step-progress로 직접 넣는다.
 function StepTimer({
   timerRef,
@@ -395,11 +396,11 @@ function StepTimer({
     <div
       ref={timerRef}
       aria-hidden
-      className="pointer-events-none absolute inset-x-6 z-10 mx-auto hidden h-1.5 max-w-2xl overflow-hidden rounded-full bg-muted data-[side]:block data-[side=next]:bottom-4 data-[side=previous]:top-4"
+      className="pointer-events-none absolute inset-x-6 z-10 mx-auto hidden h-0.5 max-w-md data-[side]:block data-[side=next]:bottom-5 data-[side=previous]:top-5"
     >
       {/* 매 프레임 바뀌는 값이라 Tailwind 클래스로 정할 수 없다. */}
       <div
-        className="h-full origin-left bg-primary"
+        className="h-full origin-center rounded-full bg-linear-to-r from-transparent via-primary to-transparent"
         style={{ transform: "scaleX(var(--step-progress, 0))" }}
       />
     </div>
