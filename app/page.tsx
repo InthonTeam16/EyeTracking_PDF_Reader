@@ -28,6 +28,16 @@ export default function Home() {
               >
                 샘플 PDF로 체험하기
               </Link>
+              {/* TODO(demo): 시선 학습 데이터를 다 모으면 수집 페이지와 함께 지운다. */}
+              <Link
+                href="/lab/gaze/collect"
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "lg" }),
+                  "h-13 rounded-xl px-5.5 text-base",
+                )}
+              >
+                데이터 학습
+              </Link>
             </>
           }
         />
