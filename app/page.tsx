@@ -1,13 +1,51 @@
 import Link from "next/link";
+import { Upload } from "lucide-react";
+
+import { buttonVariants } from "@/components/ui/button";
+import { Hero } from "@/components/landing/Hero";
+import { HowItWorks } from "@/components/landing/HowItWorks";
+import { LandingFooter } from "@/components/landing/LandingFooter";
+import { LandingHeader } from "@/components/landing/LandingHeader";
+import { WebcamGuide } from "@/components/landing/WebcamGuide";
+import { cn } from "@/lib/utils";
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4">
-      <h1 className="text-2xl font-semibold">EyeTracking PDF Reader</h1>
-      <nav className="flex gap-4 text-muted-foreground">
-        <Link href="/reader">리더</Link>
-        <Link href="/lab/gaze">시선 엔진 테스트</Link>
-      </nav>
-    </main>
+    <div className="flex flex-1 flex-col break-keep">
+      <LandingHeader />
+      <main className="flex-1">
+        <Hero
+          actions={
+            <>
+              {/* 업로드 UI: 김정인 담당. 업로드 컴포넌트가 나오면 아래 링크를 교체한다. */}
+              {/* TODO(demo): 업로드 UI 연결 전까지 리더 화면으로 이동만 한다. */}
+              <Link
+                href="/reader"
+                className={cn(
+                  buttonVariants({ size: "lg" }),
+                  "h-13 gap-2.5 rounded-xl px-6 text-base",
+                )}
+              >
+                <Upload className="size-4.5" aria-hidden="true" />
+                PDF 올리기
+              </Link>
+              {/* TODO(demo): 리더에서 ?sample=demo-ko 처리 필요 (public/samples/demo-ko.pdf) */}
+              <Link
+                href="/reader?sample=demo-ko"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "lg" }),
+                  "h-13 rounded-xl px-5.5 text-base",
+                )}
+              >
+                샘플 PDF로 체험하기
+              </Link>
+            </>
+          }
+        />
+        <HowItWorks />
+        <WebcamGuide />
+      </main>
+      <LandingFooter />
+    </div>
   );
 }
