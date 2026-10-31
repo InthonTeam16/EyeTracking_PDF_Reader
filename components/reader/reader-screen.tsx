@@ -272,6 +272,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
               <PdfPages
                 file={file}
                 follow={settings.syncPdf}
+                revealKey={viewMode}
                 thumbnailsSide={split && pdfFirst ? "left" : "right"}
                 inverted={dark && settings.darkPdf}
                 blocks={blocks}
