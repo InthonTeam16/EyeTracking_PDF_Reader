@@ -12,8 +12,18 @@ import type {
   PDFDocumentProxy,
   RenderTask,
 } from "pdfjs-dist";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 
+import {
+  useHighlightBoxes,
+  type HighlightTarget,
+} from "@/components/reader/pdf-highlight";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -61,18 +71,68 @@ function scrollToPage(
   container.scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
 }
 
+// PDF 뷰어의 손 도구처럼 화면을 잡고 끌어서 움직인다.
+function useDragToPan(scrollRef: RefObject<HTMLDivElement | null>) {
+  const [panning, setPanning] = useState(false);
+  const start = useRef({ x: 0, y: 0, left: 0, top: 0 });
+
+  const stop = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    setPanning(false);
+  };
+
+  return {
+    panning,
+    handlers: {
+      onPointerDown: (event: PointerEvent<HTMLDivElement>) => {
+        const container = scrollRef.current;
+        // 왼쪽 버튼만. 스크롤바를 누른 경우는 브라우저에 맡긴다.
+        if (!container || event.button !== 0) return;
+        const rect = container.getBoundingClientRect();
+        if (
+          event.clientX > rect.left + container.clientWidth ||
+          event.clientY > rect.top + container.clientHeight
+        )
+          return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        start.current = {
+          x: event.clientX,
+          y: event.clientY,
+          left: container.scrollLeft,
+          top: container.scrollTop,
+        };
+        setPanning(true);
+      },
+      onPointerMove: (event: PointerEvent<HTMLDivElement>) => {
+        const container = scrollRef.current;
+        if (!panning || !container) return;
+        container.scrollLeft =
+          start.current.left - (event.clientX - start.current.x);
+        container.scrollTop =
+          start.current.top - (event.clientY - start.current.y);
+      },
+      onPointerUp: stop,
+      onPointerCancel: stop,
+    },
+  };
+}
+
 type PdfPagesProps = {
   file: File;
   // 바뀔 때마다 이 페이지로 스크롤한다 (집중 읽기와 동기화).
   syncPage: number | null;
   // 페이지 목록을 둘 쪽. 분할 보기에서 PDF가 왼쪽이면 화면 바깥쪽인 왼쪽에 둔다.
   thumbnailsSide?: "left" | "right";
+  // 형광펜처럼 칠할 블록과 박스 색 클래스. null이면 칠하지 않는다.
+  highlight?: (HighlightTarget & { className: string }) | null;
 };
 
 export function PdfPages({
   file,
   syncPage,
   thumbnailsSide = "right",
+  highlight = null,
 }: PdfPagesProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [failed, setFailed] = useState(false);
@@ -86,6 +146,8 @@ export function PdfPages({
   const [currentPage, setCurrentPage] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const highlighted = useHighlightBoxes(doc, highlight);
+  const { panning, handlers: panHandlers } = useDragToPan(scrollRef);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +184,10 @@ export function PdfPages({
     const observer = new ResizeObserver(([entry]) => {
       const width = entry.contentRect.width;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => setContainerWidth(width), RESIZE_DELAY_MS);
+      timer = window.setTimeout(
+        () => setContainerWidth(width),
+        RESIZE_DELAY_MS,
+      );
     });
     observer.observe(container);
     return () => {
@@ -216,7 +281,11 @@ export function PdfPages({
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="relative min-w-0 flex-1 overflow-auto bg-muted"
+          {...panHandlers}
+          className={cn(
+            "relative min-w-0 flex-1 touch-none overflow-auto bg-muted select-none",
+            panning ? "cursor-grabbing" : "cursor-grab",
+          )}
         >
           {failed ? (
             <p className="p-8 text-center text-sm text-muted-foreground">
@@ -236,7 +305,7 @@ export function PdfPages({
                   ref={(element) => {
                     pageRefs.current[index] = element;
                   }}
-                  className="shrink-0 bg-card shadow-sm ring-1 ring-foreground/10"
+                  className="relative shrink-0 bg-card shadow-sm ring-1 ring-foreground/10"
                 >
                   <PdfCanvas
                     doc={doc}
@@ -244,6 +313,26 @@ export function PdfPages({
                     width={baseSize.width * scale}
                     height={baseSize.height * scale}
                   />
+                  {highlight &&
+                    highlighted
+                      .find((h) => h.page === index + 1)
+                      ?.boxes.map((box, boxIndex) => (
+                        <div
+                          key={boxIndex}
+                          aria-hidden="true"
+                          className={cn(
+                            "pointer-events-none absolute rounded-md border-2 mix-blend-multiply transition-all duration-300",
+                            highlight.className,
+                          )}
+                          // 페이지 비율 위치라 Tailwind 클래스로 정할 수 없다.
+                          style={{
+                            left: `${box.left * 100}%`,
+                            top: `${box.top * 100}%`,
+                            width: `${box.width * 100}%`,
+                            height: `${box.height * 100}%`,
+                          }}
+                        />
+                      ))}
                 </div>
               ))}
             </div>

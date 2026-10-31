@@ -18,6 +18,7 @@ import {
   type ViewMode,
 } from "@/components/reader/reader-header";
 import {
+  HIGHLIGHT_BOX_CLASSES,
   ReaderSettingsButton,
   useReaderSettings,
 } from "@/components/reader/reader-settings";
@@ -78,12 +79,14 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   // x는 분할 영역 왼쪽 끝에서 손잡이까지의 비율
   const resizeSplit = (x: number) => {
     const ratio = pdfFirst ? 1 - x : x;
-    setReadingRatio(Math.min(Math.max(ratio, MIN_PANE_RATIO), 1 - MIN_PANE_RATIO));
+    setReadingRatio(
+      Math.min(Math.max(ratio, MIN_PANE_RATIO), 1 - MIN_PANE_RATIO),
+    );
   };
 
   const render = (gaze: GazeState, message: string) => {
-    const activePage =
-      blocks.find((block) => block.id === gaze.activeBlockId)?.page ?? null;
+    const activeBlock = blocks.find((block) => block.id === gaze.activeBlockId);
+    const activePage = activeBlock?.page ?? null;
 
     return (
       <>
@@ -156,6 +159,16 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                 file={file}
                 syncPage={settings.syncPdf ? activePage : null}
                 thumbnailsSide={split && pdfFirst ? "left" : "right"}
+                highlight={
+                  settings.pdfHighlight && activeBlock
+                    ? {
+                        page: activeBlock.page,
+                        text: activeBlock.text,
+                        className:
+                          HIGHLIGHT_BOX_CLASSES[settings.pdfHighlightColor],
+                      }
+                    : null
+                }
               />
             ) : (
               <p className="m-auto p-8 text-sm text-muted-foreground">
@@ -322,7 +335,8 @@ function describeWebcam(status: GazeStatus, calibrated: boolean): string {
     case "error":
       return "웹캠을 시작하지 못했어요.";
     case "tracking":
-      if (!status.faceVisible) return "얼굴이 보이지 않아요. 화면 정면을 봐 주세요.";
+      if (!status.faceVisible)
+        return "얼굴이 보이지 않아요. 화면 정면을 봐 주세요.";
       if (!calibrated)
         return `화면 곳곳을 바라보며 클릭해 보정해 주세요 · ${status.clicks}/${GAZE_MIN_TRAINING_CLICKS}`;
       return "웹캠으로 시선을 따라가는 중이에요.";
