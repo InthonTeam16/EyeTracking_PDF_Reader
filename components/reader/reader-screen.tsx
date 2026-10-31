@@ -126,7 +126,12 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
     );
   };
 
-  const render = (gaze: GazeState, message: string, onPdf: boolean) => {
+  const render = (
+    gaze: GazeState,
+    message: string,
+    onPdf: boolean,
+    onRecalibrate?: () => void,
+  ) => {
     // 분할 보기에서 원본 PDF를 보는 중이면 어느 칸을 보는지와 읽기가 멈췄다는 걸 보여준다.
     const viewingPdf = split && onPdf;
     const activeBlock = pagedBlocks.find(
@@ -152,6 +157,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
           onSwapPanes={() => setPdfFirst((prev) => !prev)}
           gazeMode={gazeMode}
           onGazeModeToggle={toggleGazeMode}
+          onRecalibrate={onRecalibrate}
           settings={
             <ReaderSettingsButton
               settings={settings}
@@ -415,7 +421,12 @@ type GazeSourceProps = {
   // 읽는 블록이 바뀌면 알린다 (다른 블록의 설명 팝업을 닫는 데 쓴다)
   onActiveBlockChange: (blockId: string | null) => void;
   // onPdf: 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF)에 있어 읽기가 멈춘 상태
-  render: (gaze: GazeState, message: string, onPdf: boolean) => ReactNode;
+  render: (
+    gaze: GazeState,
+    message: string,
+    onPdf: boolean,
+    onRecalibrate?: () => void,
+  ) => ReactNode;
 };
 
 // 읽는 블록 기준으로 설명 타이머를 재고, 블록이 바뀌면 알린다.
@@ -476,10 +487,12 @@ function WebcamGaze({
     { onSquint: events.onSquint },
     { guided: true, ...experiment },
   );
+  // 보정 중에는 멈춘다. 끝나면 새로 시작해서 이전 보정 때의 시선 기준점이 남지 않는다.
   const { activeBlockId, lookingAtText } = useCenterReading(
     gaze.point,
     scrollRef,
     stepTimerRef,
+    gaze.calibrated,
   );
   useBlockExplain(activeBlockId, lookingAtText, {
     events,
@@ -500,13 +513,16 @@ function WebcamGaze({
         <CalibrationOverlay
           clicks={status.clicks}
           faceVisible={status.faceVisible}
-          onCancel={onFail}
+          onCancel={() => {
+            if (!gaze.cancelRecalibrate()) onFail();
+          }}
         />
       )}
       {render(
         { ...gaze, activeBlockId },
         describeWebcam(gaze.status, gaze.calibrated),
         gaze.calibrated && !lookingAtText,
+        gaze.calibrated ? gaze.recalibrate : undefined,
       )}
     </>
   );
