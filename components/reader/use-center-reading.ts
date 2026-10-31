@@ -60,15 +60,16 @@ function blockElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>("[data-block-id]")];
 }
 
-function centerOn(container: HTMLElement, element: HTMLElement) {
+// 블록 중심이 칸 중심보다 아래에 있는 거리(px)
+function centerOffset(container: HTMLElement, element: HTMLElement): number {
   const box = element.getBoundingClientRect();
   const view = container.getBoundingClientRect();
+  return box.top - view.top + box.height / 2 - view.height / 2;
+}
+
+function centerOn(container: HTMLElement, element: HTMLElement) {
   container.scrollTo({
-    top:
-      container.scrollTop +
-      (box.top - view.top) +
-      box.height / 2 -
-      view.height / 2,
+    top: container.scrollTop + centerOffset(container, element),
     behavior: "smooth",
   });
 }
@@ -104,6 +105,8 @@ export function useCenterReading(
   const pointRef = useRef(point);
   const indexRef = useRef(index);
   const autoScrollUntil = useRef(0);
+  // 휠·스크롤바로 옮겨 읽는 블록이 가운데에서 벗어나 있는지
+  const manualScrolled = useRef(false);
 
   useEffect(() => {
     pointRef.current = point;
@@ -120,6 +123,7 @@ export function useCenterReading(
     const elements = blockElements(container);
     const element = elements[Math.min(index, elements.length - 1)];
     if (!element) return;
+    manualScrolled.current = false;
     autoScrollUntil.current = performance.now() + AUTO_SCROLL_MS;
     centerOn(container, element);
     const frame = requestAnimationFrame(() =>
@@ -127,6 +131,25 @@ export function useCenterReading(
     );
     return () => cancelAnimationFrame(frame);
   }, [enabled, index, scrollRef]);
+
+  // 팝업이 닫히거나 칸 폭·글자 크기가 바뀌면 본문 높이가 달라져 읽는 블록이 가운데에서 밀린다.
+  // 직접 옮긴 위치는 그대로 둔다.
+  useEffect(() => {
+    const container = scrollRef.current;
+    const content = container?.firstElementChild;
+    if (!enabled || !container || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (manualScrolled.current) return;
+      const elements = blockElements(container);
+      const element = elements[Math.min(indexRef.current, elements.length - 1)];
+      if (!element) return;
+      autoScrollUntil.current = performance.now() + AUTO_SCROLL_MS;
+      centerOn(container, element);
+    });
+    observer.observe(container);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [enabled, scrollRef]);
 
   // 눈짓을 보고 넘긴다.
   useEffect(() => {
@@ -272,6 +295,10 @@ export function useCenterReading(
       timer = window.setTimeout(() => {
         const nearest = nearestToCenter(container);
         const element = blockElements(container)[nearest];
+        // 긴 자동 스크롤이 끝난 경우도 여기로 오므로 실제로 벗어났는지 본다.
+        manualScrolled.current =
+          element !== undefined &&
+          Math.abs(centerOffset(container, element)) > 2;
         setActiveId(element?.getAttribute("data-block-id") ?? null);
         // 같은 블록이면 다시 가운데로 끌어오지 않는다.
         setIndex(nearest);
