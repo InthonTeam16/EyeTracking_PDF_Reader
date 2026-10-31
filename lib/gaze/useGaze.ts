@@ -138,7 +138,12 @@ export function useGaze(
     geometric?: boolean;
     defer?: boolean;
   } = {},
-): GazeState & { status: GazeStatus; recalibrate: () => void } {
+): GazeState & {
+  status: GazeStatus;
+  recalibrate: () => void;
+  // 다시 보정을 취소하고 이전 보정으로 돌아간다. 돌아갈 보정이 없으면 false.
+  cancelRecalibrate: () => boolean;
+} {
   const baseSamples = samples ?? PRETRAINED_SAMPLES;
   const usesPretrained =
     !geometric && baseSamples.length >= GAZE_MIN_TRAINING_CLICKS;
@@ -150,6 +155,12 @@ export function useGaze(
   const usesPretrainedRef = useRef(usesPretrained);
   const offsetRef = useRef({ x: 0, y: 0 });
   const modelInputsRef = useRef<unknown[] | null>(null);
+  // 새 보정이 끝날 때까지 들고 있는 이전 보정
+  const previousRef = useRef<{
+    model: GazeModel;
+    samples: GazeSample[];
+    offset: { x: number; y: number };
+  } | null>(null);
 
   useEffect(() => {
     // 페이지가 숨겨졌다 돌아올 때도 effect가 다시 돌므로, 입력이 그대로면 보정 결과를 지우지 않는다.
@@ -165,9 +176,17 @@ export function useGaze(
       : null;
     offsetRef.current = { x: 0, y: 0 };
     samplesRef.current = [];
+    previousRef.current = null;
   }, [baseSamples, usesPretrained, guided, geometric]);
 
   const recalibrate = useCallback(() => {
+    if (modelRef.current) {
+      previousRef.current = {
+        model: modelRef.current,
+        samples: samplesRef.current,
+        offset: offsetRef.current,
+      };
+    }
     samplesRef.current = [];
     modelRef.current = null;
     offsetRef.current = { x: 0, y: 0 };
@@ -176,6 +195,22 @@ export function useGaze(
     setStatus((current) =>
       current.phase === "tracking" ? { ...current, clicks: 0 } : current,
     );
+  }, []);
+
+  const cancelRecalibrate = useCallback(() => {
+    const previous = previousRef.current;
+    if (!previous) return false;
+    previousRef.current = null;
+    modelRef.current = previous.model;
+    samplesRef.current = previous.samples;
+    offsetRef.current = previous.offset;
+    setTrained(true);
+    setStatus((current) =>
+      current.phase === "tracking"
+        ? { ...current, clicks: previous.samples.length }
+        : current,
+    );
+    return true;
   }, []);
 
   const handleSquint = useEffectEvent((blockId: string) => {
@@ -260,6 +295,7 @@ export function useGaze(
         : GAZE_MIN_TRAINING_CLICKS;
       if (samplesRef.current.length < minClicks) return;
       modelRef.current = fitModel(samplesRef.current, guided, geometric);
+      previousRef.current = null;
       setTrained(true);
     };
 
@@ -369,5 +405,6 @@ export function useGaze(
     calibrated: usesPretrained || trained,
     status,
     recalibrate,
+    cancelRecalibrate,
   };
 }
