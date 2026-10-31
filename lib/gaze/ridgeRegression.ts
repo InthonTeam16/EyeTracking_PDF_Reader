@@ -91,3 +91,86 @@ export function fitGazeModel(samples: GazeSample[], lambda: number): GazeModel {
     return { x: predictX(input), y: predictY(input) };
   };
 }
+
+// 저장된 데이터와 사용자의 차이를 최근 클릭의 평균 오차로 구한다.
+export function computeOffset(
+  model: GazeModel,
+  samples: GazeSample[],
+): { x: number; y: number } {
+  if (samples.length === 0) return { x: 0, y: 0 };
+  const errors = samples.map((sample) => {
+    const predicted = model(sample.features);
+    return { x: sample.x - predicted.x, y: sample.y - predicted.y };
+  });
+  return {
+    x: mean(errors.map((error) => error.x)),
+    y: mean(errors.map((error) => error.y)),
+  };
+}
+
+// 샘플을 fold로 나눠, 각 샘플을 뺀 모델로 예측했을 때의 오차를 잰다.
+function measureHoldoutErrors(
+  samples: GazeSample[],
+  lambda: number,
+  folds: number,
+  foldOf: (index: number) => number,
+): { x: number; y: number }[] {
+  const models = Array.from({ length: folds }, (_, fold) =>
+    fitGazeModel(
+      samples.filter((_, index) => foldOf(index) !== fold),
+      lambda,
+    ),
+  );
+  return samples.map((sample, index) => {
+    const predicted = models[foldOf(index)](sample.features);
+    return { x: predicted.x - sample.x, y: predicted.y - sample.y };
+  });
+}
+
+export type GazeDataset = {
+  samples: GazeSample[];
+  removed: number;
+  // 처음 보는 자세에서의 평균 오차 (화면 비율). 샘플이 부족하면 null.
+  error: { x: number; y: number } | null;
+};
+
+// 다른 곳을 보며 클릭한 샘플을 버리고 남은 데이터의 오차를 잰다.
+export function cleanDataset(
+  samples: GazeSample[],
+  lambda: number,
+  folds: number,
+  outlierSigma: number,
+  minSamples: number,
+): GazeDataset {
+  if (samples.length < minSamples) {
+    return { samples, removed: 0, error: null };
+  }
+
+  // 섞어서 나누면 같은 자세가 양쪽에 있어 자세 차이가 아닌 잘못된 클릭만 튄다.
+  const distances = measureHoldoutErrors(
+    samples,
+    lambda,
+    folds,
+    (index) => index % folds,
+  ).map((error) => Math.hypot(error.x, error.y));
+  const average = mean(distances);
+  const deviation = Math.sqrt(
+    mean(distances.map((distance) => (distance - average) ** 2)),
+  );
+  const kept = samples.filter(
+    (_, index) => distances[index] <= average + outlierSigma * deviation,
+  );
+
+  // 연속 구간을 통째로 빼면 그 자세를 학습하지 않은 모델의 오차가 된다.
+  const errors = measureHoldoutErrors(kept, lambda, folds, (index) =>
+    Math.floor((index * folds) / kept.length),
+  );
+  return {
+    samples: kept,
+    removed: samples.length - kept.length,
+    error: {
+      x: mean(errors.map((error) => Math.abs(error.x))),
+      y: mean(errors.map((error) => Math.abs(error.y))),
+    },
+  };
+}

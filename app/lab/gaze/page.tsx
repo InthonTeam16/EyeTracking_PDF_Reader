@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
 import { Button } from "@/components/ui/button";
-import { GAZE_MIN_TRAINING_CLICKS } from "@/lib/gaze/config";
+import {
+  GAZE_CORRECTION_CLICKS,
+  GAZE_MIN_TRAINING_CLICKS,
+} from "@/lib/gaze/config";
+import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
 import { type GazeStatus, useGaze } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
 import { getMockBlocks } from "@/lib/mock/blocks";
@@ -74,7 +78,9 @@ function describeStatus(status: GazeStatus): string {
       const face = status.faceVisible
         ? "얼굴 인식됨"
         : "얼굴이 보이지 않습니다. 이 상태의 클릭은 학습되지 않습니다.";
-      return `${face} · 학습 ${status.clicks}회 (최소 ${GAZE_MIN_TRAINING_CLICKS}회)`;
+      return status.usesPretrained
+        ? `${face} · 저장된 데이터 ${PRETRAINED_SAMPLES.length}개 · 보정 클릭 ${status.clicks}회 (최근 ${GAZE_CORRECTION_CLICKS}회 반영)`
+        : `${face} · 학습 ${status.clicks}회 (최소 ${GAZE_MIN_TRAINING_CLICKS}회)`;
     }
   }
 }
@@ -128,7 +134,7 @@ export default function GazeLabPage() {
           ))}
         </div>
       </div>
-      {mode !== "mouse" && (
+      {mode === "webcam" && (
         <p className="text-sm text-muted-foreground">
           화면 곳곳을 바라보면서 클릭하면 학습합니다.
         </p>
