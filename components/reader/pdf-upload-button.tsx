@@ -11,13 +11,26 @@ export function PdfUploadButton() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    // 같은 파일을 다시 골라도 change가 일어나도록 비운다.
-    event.target.value = "";
+  const handleChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
 
-    setPendingPdf(file);
+    // 고른 순간 내용을 메모리로 복사한다. 디스크 파일 참조만 넘기면 입력칸을 비우거나
+    // 페이지를 옮긴 뒤 읽을 때 브라우저가 접근을 끊어 NotFoundError가 날 수 있다.
+    let copy = file;
+    try {
+      copy = new File([await file.arrayBuffer()], file.name, {
+        type: file.type,
+      });
+    } catch (error) {
+      // 복사에 실패해도 원래 파일로 계속한다. 리더에서 다시 읽어 보고, 안 되면 샘플을 보여준다.
+      console.warn("올린 파일을 미리 읽지 못했습니다.", error);
+    }
+    // 같은 파일을 다시 골라도 change가 일어나도록 비운다.
+    input.value = "";
+
+    setPendingPdf(copy);
     router.push("/reader");
   };
 
@@ -26,7 +39,7 @@ export function PdfUploadButton() {
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,text/plain,.txt"
         className="hidden"
         onChange={handleChange}
       />
@@ -36,7 +49,7 @@ export function PdfUploadButton() {
         onClick={() => inputRef.current?.click()}
       >
         <Upload className="size-4.5" aria-hidden="true" />
-        PDF 올리기
+        PDF·TXT 올리기
       </Button>
     </>
   );

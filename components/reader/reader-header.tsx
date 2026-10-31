@@ -26,6 +26,8 @@ const VIEW_MODES: { value: ViewMode; label: string; icon: LucideIcon }[] = [
 type ReaderHeaderProps = {
   title: string;
   viewMode: ViewMode;
+  // 원본 PDF가 없는 문서(TXT 등)는 보기 방식 탭을 숨긴다
+  showViewModes: boolean;
   onViewModeChange: (mode: ViewMode) => void;
   // 분할 보기에서 좌우 칸을 바꾼다
   onSwapPanes: () => void;
@@ -38,6 +40,7 @@ type ReaderHeaderProps = {
 export function ReaderHeader({
   title,
   viewMode,
+  showViewModes,
   onViewModeChange,
   onSwapPanes,
   gazeMode,
@@ -57,7 +60,12 @@ export function ReaderHeader({
         <p className="truncate text-sm font-medium">{title}</p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2",
+          !showViewModes && "hidden",
+        )}
+      >
         <div
           role="group"
           aria-label="보기 방식"

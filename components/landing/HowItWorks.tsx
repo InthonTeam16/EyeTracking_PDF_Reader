@@ -1,6 +1,6 @@
 const STEPS = [
   {
-    title: "PDF 올리기",
+    title: "PDF·TXT 올리기",
     description:
       "문서를 문맥 단위 블록으로 다시 배치해요. 줄 간격을 넉넉하게 벌려 시선이 어느 문단에 있는지 정확히 잡아내요.",
   },

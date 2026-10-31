@@ -92,3 +92,5 @@
 - 다크 모드는 사이트 공용 테마(`components/reader/theme.tsx`, localStorage `theme`)로 `<html>`에 `dark` 클래스를 붙인다: `globals.css`의 다크 토큰을 그대로 쓴다. 첫 화면 깜빡임을 막는 `ThemeScript`는 `app/layout.tsx`의 `<head>`에, 전환 버튼 `ThemeToggle`은 랜딩 헤더에 넣었다(팀 합의로 정인이 수정).
 - 다크 모드의 원본 PDF는 `invert hue-rotate-180`으로 뒤집는다: 흰 페이지가 눈부시지 않게 하면서, 색상을 반 바퀴 돌려 컬러 글자·그림은 원래 색에 가깝게 둔다. 형광펜은 뒤집지 않고 `mix-blend-screen`과 낮은 불투명도로 겹쳐 밝은 글자가 묻히지 않게 한다.
 - 보기 설정은 탭 4개(글자·읽기·원본 PDF·테마)로 나누고 켜기/끄기 토글을 2개로 줄임: 문단 하이라이트는 집중 효과 슬라이더의 "끔", 원본 PDF 하이라이트는 형광펜 색의 "없음"으로 합쳤다.
+- TXT 업로드 지원(`lib/pdf/textToBlocks.ts`): 빈 줄이 있으면 빈 줄로, 없으면 줄마다 문단을 나누고 PDF와 같은 기준(`MIN/MAX_BLOCK_CHARS`, `splitToFit`)으로 블록 크기를 맞춘다. 한글 TXT는 EUC-KR이 많아 UTF-8로 읽다 깨지면 EUC-KR로 다시 읽는다. 원본 보기가 없어 집중 읽기만 쓰고, 진행 표시는 문단 기준이다.
+- 업로드한 파일은 고르는 순간 메모리로 복사해 넘김: 디스크 파일 참조만 넘기면 입력칸을 비우거나 페이지를 옮긴 뒤 읽을 때 브라우저가 접근을 끊어 `NotFoundError`가 났다(다운로드 폴더 파일에서 재현).

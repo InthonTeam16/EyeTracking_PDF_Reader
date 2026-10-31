@@ -127,11 +127,14 @@ const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
 type ReaderSettingsButtonProps = {
   settings: ReaderSettings;
   onChange: (patch: Partial<ReaderSettings>) => void;
+  // 원본 PDF가 없는 문서(TXT 등)는 원본 PDF 탭을 숨긴다
+  hasPdf: boolean;
 };
 
 export function ReaderSettingsButton({
   settings,
   onChange,
+  hasPdf,
 }: ReaderSettingsButtonProps) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("text");
@@ -174,24 +177,26 @@ export function ReaderSettingsButton({
           className="absolute top-full right-0 z-20 mt-2 w-72 overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 animate-in fade-in slide-in-from-top-1"
         >
           <div role="tablist" className="flex border-b">
-            {TABS.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={tab === value}
-                aria-label={label}
-                title={label}
-                onClick={() => setTab(value)}
-                className={cn(
-                  "flex flex-1 justify-center py-3 text-muted-foreground transition-colors hover:text-foreground",
-                  tab === value &&
-                    "text-foreground shadow-[inset_0_-2px_0_var(--color-foreground)]",
-                )}
-              >
-                <Icon className="size-4" />
-              </button>
-            ))}
+            {TABS.filter((t) => hasPdf || t.value !== "pdf").map(
+              ({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === value}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => setTab(value)}
+                  className={cn(
+                    "flex flex-1 justify-center py-3 text-muted-foreground transition-colors hover:text-foreground",
+                    tab === value &&
+                      "text-foreground shadow-[inset_0_-2px_0_var(--color-foreground)]",
+                  )}
+                >
+                  <Icon className="size-4" />
+                </button>
+              ),
+            )}
           </div>
 
           <div role="tabpanel" className="flex flex-col gap-5 p-4">
