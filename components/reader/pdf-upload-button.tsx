@@ -49,7 +49,7 @@ export function PdfUploadButton() {
         onClick={() => inputRef.current?.click()}
       >
         <Upload className="size-4.5" aria-hidden="true" />
-        PDF·TXT 올리기
+        파일 열기(PDF·TXT)
       </Button>
     </>
   );
