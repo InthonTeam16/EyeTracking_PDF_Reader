@@ -66,3 +66,15 @@ export function extractGazeFeatures(
   const { yaw, pitch } = headPoseFromMatrix(matrix);
   return [(firstX - secondX) / 2, (firstY - secondY) / 2, yaw, pitch];
 }
+
+// 실험: MediaPipe 표정 점수의 눈 위·아래 보기(eyeLookUp/Down) 차이. 눈꺼풀에 가려 홍채 좌표가 약한 세로 방향을 보완할 수 있는지 본다.
+// 시선 입력 끝에 붙이므로 이 값 없이 모은 데이터(저장된 데이터셋)와는 함께 쓸 수 없다.
+export function eyeLookVertical(
+  categories: { categoryName: string; score: number }[],
+): number {
+  const score = (name: string) =>
+    categories.find((c) => c.categoryName === name)?.score ?? 0;
+  const up = (score("eyeLookUpLeft") + score("eyeLookUpRight")) / 2;
+  const down = (score("eyeLookDownLeft") + score("eyeLookDownRight")) / 2;
+  return up - down;
+}

@@ -1,29 +1,48 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import {
   GAZE_CALIBRATION_POINTS,
   GAZE_CORRECTION_CLICKS,
+  GAZE_EYEBALL,
   GAZE_FEATURE_AVERAGE_FRAMES,
   GAZE_MAX_TRAINING_CLICKS,
   GAZE_MIN_TRAINING_CLICKS,
+  GAZE_ONE_EURO,
   GAZE_PITCH_Y_PER_DEGREE,
+  GAZE_POINT_UPDATE_MS,
   GAZE_RIDGE_LAMBDA,
   GAZE_SMOOTHING_SAMPLES,
+  GAZE_TRACKER,
+  GAZE_TRACKER_DEFER_LAG,
+  GAZE_TRACKER_MARGIN,
   GAZE_YAW_X_PER_DEGREE,
   MIN_EYE_OPEN_RATIO,
+  SQUINT,
 } from "@/lib/gaze/config";
+import { createBlockTracker, readBlockBoxes } from "@/lib/gaze/blockTracker";
 import {
   extractGazeFeatures,
+  eyeLookVertical,
   PITCH_FEATURE_INDEX,
   YAW_FEATURE_INDEX,
 } from "@/lib/gaze/faceFeatures";
 import { startFaceTracking } from "@/lib/gaze/faceTracking";
 import { findBlockId } from "@/lib/gaze/findBlockId";
+import { extractGeometricFeatures } from "@/lib/gaze/geometricGaze";
+import { createOneEuroFilter } from "@/lib/gaze/oneEuro";
+import { createSquintDetector } from "@/lib/gaze/squint";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
 import {
   computeOffset,
   type FixedInput,
+  fitGazeModel,
   fitGazeModelWithFixedInputs,
   type GazeModel,
   type GazeSample,
@@ -59,7 +78,13 @@ const FIXED_YAW: FixedInput = {
   perUnit: GAZE_YAW_X_PER_DEGREE,
 };
 
-function fitModel(samples: GazeSample[], guided: boolean): GazeModel {
+function fitModel(
+  samples: GazeSample[],
+  guided: boolean,
+  geometric: boolean,
+): GazeModel {
+  // 기하 모델의 입력은 이미 자세가 반영된 화면 위 점이라 선형 변환만 배운다.
+  if (geometric) return fitGazeModel(samples, GAZE_RIDGE_LAMBDA);
   return fitGazeModelWithFixedInputs(
     samples,
     GAZE_RIDGE_LAMBDA,
@@ -87,12 +112,36 @@ function clampToViewport(point: { x: number; y: number }) {
 // samples를 주면 저장된 데이터 대신 쓰고, 바뀌면 카메라를 끄지 않고 다시 학습한다.
 // data-gaze-ignore 안의 클릭은 학습과 보정에 쓰지 않는다.
 // guided면 data-gaze-target 점의 클릭으로 사람마다 보정하고, 그 뒤 클릭은 치우침 보정에만 쓴다.
+// model이 "reading"이면 읽기 순서를 아는 블록 추적기로 블록을 정하고, 보정이 끝난 뒤에는
+// 블록이나 보정 점을 누른 클릭만 치우침 보정에 쓴다 (버튼·메뉴 클릭은 그곳을 보고 있다는 보장이 약하다).
+// "legacy"는 이동 평균 + 좌표 아래 블록인 이전 방식이다 (비교용).
+// eyeLook은 실험용 세로 입력을 더한다. 저장된 데이터(samples)와 함께 쓰지 않는다.
+// geometric이면 홍채 좌표 대신 기하 모델(lib/gaze/geometricGaze.ts)의 시선-화면 교점을 입력으로 쓴다.
+// 입력 모양이 달라 저장된 데이터는 쓰지 않고 보정 점으로만 학습한다.
+// defer면 블록 추적기가 관측 몇 개를 더 본 뒤 블록을 정한다 (lib/gaze/blockTracker.ts).
+export type GazeModelKind = "reading" | "legacy";
+
 export function useGaze(
   events: GazeEvents,
-  { samples, guided = false }: { samples?: GazeSample[]; guided?: boolean } = {},
+  {
+    samples,
+    guided = false,
+    model = "reading",
+    eyeLook = false,
+    geometric = false,
+    defer = false,
+  }: {
+    samples?: GazeSample[];
+    guided?: boolean;
+    model?: GazeModelKind;
+    eyeLook?: boolean;
+    geometric?: boolean;
+    defer?: boolean;
+  } = {},
 ): GazeState & { status: GazeStatus; recalibrate: () => void } {
   const baseSamples = samples ?? PRETRAINED_SAMPLES;
-  const usesPretrained = baseSamples.length >= GAZE_MIN_TRAINING_CLICKS;
+  const usesPretrained =
+    !geometric && baseSamples.length >= GAZE_MIN_TRAINING_CLICKS;
   const [gaze, setGaze] = useState<FaceGaze>(NO_GAZE);
   const [trained, setTrained] = useState(false);
   const [status, setStatus] = useState<GazeStatus>({ phase: "loading" });
@@ -103,10 +152,12 @@ export function useGaze(
 
   useEffect(() => {
     usesPretrainedRef.current = usesPretrained;
-    modelRef.current = usesPretrained ? fitModel(baseSamples, guided) : null;
+    modelRef.current = usesPretrained
+      ? fitModel(baseSamples, guided, geometric)
+      : null;
     offsetRef.current = { x: 0, y: 0 };
     samplesRef.current = [];
-  }, [baseSamples, usesPretrained, guided]);
+  }, [baseSamples, usesPretrained, guided, geometric]);
 
   const recalibrate = useCallback(() => {
     samplesRef.current = [];
@@ -119,10 +170,26 @@ export function useGaze(
     );
   }, []);
 
+  const handleSquint = useEffectEvent((blockId: string) => {
+    events.onSquint?.(blockId);
+  });
+
   useEffect(() => {
     let recentFeatures: number[][] = [];
     let faceVisible = false;
+    const reading = model === "reading";
     const smoother = createPointSmoother(GAZE_SMOOTHING_SAMPLES);
+    const filter = createOneEuroFilter(GAZE_ONE_EURO);
+    // 관측 오차는 화면 비율로 정해 두고 시작할 때의 창 크기로 바꾼다.
+    const tracker = createBlockTracker({
+      ...GAZE_TRACKER,
+      sigmaX: GAZE_TRACKER.sigmaX * window.innerWidth,
+      sigmaY: GAZE_TRACKER.sigmaY * window.innerHeight,
+      lag: defer ? GAZE_TRACKER_DEFER_LAG : GAZE_TRACKER.lag,
+    });
+    const squint = createSquintDetector(SQUINT);
+    let activeBlockId: string | null = null;
+    let lastPointUpdate = -Infinity;
 
     const reportTracking = () => {
       setStatus({
@@ -145,6 +212,14 @@ export function useGaze(
       if (calibrating && !target.closest("[data-gaze-target]")) return;
       const wasCalibrated =
         guided && !usesPretrainedRef.current && !calibrating;
+      const correcting =
+        wasCalibrated || (usesPretrainedRef.current && modelRef.current);
+      if (
+        reading &&
+        correcting &&
+        !target.closest("[data-block-id], [data-gaze-target]")
+      )
+        return;
       samplesRef.current = [
         ...samplesRef.current,
         {
@@ -176,7 +251,7 @@ export function useGaze(
         ? GAZE_CALIBRATION_POINTS.length
         : GAZE_MIN_TRAINING_CLICKS;
       if (samplesRef.current.length < minClicks) return;
-      modelRef.current = fitModel(samplesRef.current, guided);
+      modelRef.current = fitModel(samplesRef.current, guided, geometric);
       setTrained(true);
     };
 
@@ -199,11 +274,20 @@ export function useGaze(
         if (!landmarks || !matrix) {
           recentFeatures = [];
           smoother.reset();
+          filter.reset();
+          squint.reset();
+          activeBlockId = null;
           setGaze(NO_GAZE);
           return;
         }
 
-        const features = extractGazeFeatures(
+        const now = performance.now();
+        const blendshapes = result.faceBlendshapes[0]?.categories ?? [];
+        // 찡그리면 눈이 가늘어져 시선 입력이 없을 수 있어 먼저 본다.
+        if (squint.add(blendshapes, now) && activeBlockId)
+          handleSquint(activeBlockId);
+
+        const base = extractGazeFeatures(
           landmarks,
           video.videoWidth,
           video.videoHeight,
@@ -211,7 +295,20 @@ export function useGaze(
           matrix.data,
         );
         // 눈을 깜빡이는 동안에는 직전 시선을 유지한다.
-        if (!features) return;
+        if (!base) return;
+        const gazeInput = geometric
+          ? extractGeometricFeatures(
+              landmarks,
+              video.videoWidth,
+              video.videoHeight,
+              matrix.data,
+              GAZE_EYEBALL,
+            )
+          : base;
+        if (!gazeInput) return;
+        const features = eyeLook
+          ? [...gazeInput, eyeLookVertical(blendshapes)]
+          : gazeInput;
 
         recentFeatures = [...recentFeatures, features].slice(
           -GAZE_FEATURE_AVERAGE_FRAMES,
@@ -220,13 +317,27 @@ export function useGaze(
 
         const predicted = modelRef.current(features);
         const offset = offsetRef.current;
-        const point = clampToViewport(
-          smoother.add({
-            x: (predicted.x + offset.x) * window.innerWidth,
-            y: (predicted.y + offset.y) * window.innerHeight,
-          }),
-        );
-        setGaze({ point, activeBlockId: findBlockId(point.x, point.y) });
+        const raw = {
+          x: (predicted.x + offset.x) * window.innerWidth,
+          y: (predicted.y + offset.y) * window.innerHeight,
+        };
+        if (!reading) {
+          const point = clampToViewport(smoother.add(raw));
+          activeBlockId = findBlockId(point.x, point.y);
+          setGaze({ point, activeBlockId });
+          return;
+        }
+
+        const point = clampToViewport(filter.add(raw, now));
+        const next = tracker.add(point, now, () =>
+          readBlockBoxes(GAZE_TRACKER_MARGIN),
+        ).activeBlockId;
+        // 매 프레임 다시 그리지 않도록 점은 가끔만, 블록이 바뀌면 바로 알린다.
+        if (next === activeBlockId && now - lastPointUpdate < GAZE_POINT_UPDATE_MS)
+          return;
+        activeBlockId = next;
+        lastPointUpdate = now;
+        setGaze({ point, activeBlockId });
       },
       onError: (error) => {
         // TODO(demo): 실패 시 마우스 모드로 넘어가는 처리를 추가한다.
@@ -239,11 +350,10 @@ export function useGaze(
       stop();
       document.removeEventListener("click", handleClick, true);
     };
-  }, [guided]);
+  }, [guided, model, eyeLook, geometric, defer]);
 
   useDwell(gaze.activeBlockId, events.onDwell);
 
-  // TODO(demo): 찡그림 감지를 추가해 onSquint를 호출한다.
   return {
     ...gaze,
     calibrated: usesPretrained || trained,

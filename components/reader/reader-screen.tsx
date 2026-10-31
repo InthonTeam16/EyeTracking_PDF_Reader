@@ -30,8 +30,13 @@ import {
   useReaderBlocks,
   type ReaderDocument,
 } from "@/components/reader/use-reader-blocks";
-import { GAZE_MIN_TRAINING_CLICKS } from "@/lib/gaze/config";
-import { useGaze, type GazeStatus } from "@/lib/gaze/useGaze";
+import { CalibrationOverlay } from "@/components/gaze/CalibrationOverlay";
+import { GAZE_CALIBRATION_POINTS } from "@/lib/gaze/config";
+import {
+  useGaze,
+  type GazeModelKind,
+  type GazeStatus,
+} from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
 import { cn } from "@/lib/utils";
 import type { GazeEvents, GazeState } from "@/types";
@@ -313,23 +318,55 @@ type GazeSourceProps = {
   render: (gaze: GazeState, message: string) => ReactNode;
 };
 
+// 기본은 기하 모델 + 판단 미루기. 비교할 때는 주소의 ?gaze= 뒤에 쉼표로 이어 붙인다 (예: ?gaze=iris,nodefer).
+// iris 홍채 회귀, nodefer 바로 판단, legacy 이전 방식(이동 평균 + 좌표 아래 블록), eyelook 세로 입력 추가
+function readGazeExperiment(): {
+  model: GazeModelKind;
+  eyeLook: boolean;
+  geometric: boolean;
+  defer: boolean;
+} {
+  const flags = new Set(
+    (new URLSearchParams(window.location.search).get("gaze") ?? "").split(","),
+  );
+  return {
+    model: flags.has("legacy") ? "legacy" : "reading",
+    eyeLook: flags.has("eyelook"),
+    geometric: !flags.has("iris"),
+    defer: !flags.has("nodefer"),
+  };
+}
+
 function WebcamGaze({
   events,
   onFail,
   render,
 }: GazeSourceProps & { onFail: () => void }) {
-  const gaze = useGaze(events);
+  const [experiment] = useState(readGazeExperiment);
+  const gaze = useGaze(events, { guided: true, ...experiment });
   const activeBlockId = useLastBlockId(gaze.activeBlockId);
   const failed = gaze.status.phase === "error";
+  const { status } = gaze;
 
   // 권한 거부·카메라 없음·모델 로드 실패 모두 마우스 모드로 넘긴다.
   useEffect(() => {
     if (failed) onFail();
   }, [failed, onFail]);
 
-  return render(
-    { ...gaze, activeBlockId },
-    describeWebcam(gaze.status, gaze.calibrated),
+  return (
+    <>
+      {status.phase === "tracking" && !gaze.calibrated && (
+        <CalibrationOverlay
+          clicks={status.clicks}
+          faceVisible={status.faceVisible}
+          onCancel={onFail}
+        />
+      )}
+      {render(
+        { ...gaze, activeBlockId },
+        describeWebcam(gaze.status, gaze.calibrated),
+      )}
+    </>
   );
 }
 
@@ -364,7 +401,7 @@ function describeWebcam(status: GazeStatus, calibrated: boolean): string {
       if (!status.faceVisible)
         return "얼굴이 보이지 않아요. 화면 정면을 봐 주세요.";
       if (!calibrated)
-        return `화면 곳곳을 바라보며 클릭해 보정해 주세요 · ${status.clicks}/${GAZE_MIN_TRAINING_CLICKS}`;
+        return `점을 바라보며 클릭해 보정해 주세요 · ${status.clicks}/${GAZE_CALIBRATION_POINTS.length}`;
       return "웹캠으로 시선을 따라가는 중이에요.";
   }
 }
