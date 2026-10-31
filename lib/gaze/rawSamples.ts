@@ -80,7 +80,7 @@ export function isRawGazeSession(data: unknown): data is RawGazeSession {
   );
 }
 
-// 지금의 회귀 모델로도 비교할 수 있게 기존 입력값으로 바꾼다.
+// 원본 값을 회귀 모델의 입력값으로 바꾼다.
 export function rawSessionToSamples(session: RawGazeSession): GazeSample[] {
   return session.samples.flatMap((sample) => {
     const features = extractGazeFeatures(
@@ -88,6 +88,7 @@ export function rawSessionToSamples(session: RawGazeSession): GazeSample[] {
       session.video.width,
       session.video.height,
       MIN_EYE_OPEN_RATIO,
+      sample.matrix,
     );
     return features ? [{ features, x: sample.x, y: sample.y }] : [];
   });

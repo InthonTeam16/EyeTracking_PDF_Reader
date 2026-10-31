@@ -92,6 +92,32 @@ export function fitGazeModel(samples: GazeSample[], lambda: number): GazeModel {
   };
 }
 
+// 한 입력값이 세로 좌표에 주는 영향을 정해 두고 나머지 입력값만 학습한다.
+export function fitGazeModelWithFixedY(
+  samples: GazeSample[],
+  lambda: number,
+  featureIndex: number,
+  yPerUnit: number,
+): GazeModel {
+  const rest = (features: number[]) =>
+    features.filter((_, index) => index !== featureIndex);
+  const model = fitGazeModel(
+    samples.map((sample) => ({
+      features: rest(sample.features),
+      x: sample.x,
+      y: sample.y - yPerUnit * sample.features[featureIndex],
+    })),
+    lambda,
+  );
+  return (features) => {
+    const predicted = model(rest(features));
+    return {
+      x: predicted.x,
+      y: predicted.y + yPerUnit * features[featureIndex],
+    };
+  };
+}
+
 // 저장된 데이터와 사용자의 차이를 최근 클릭의 평균 오차로 구한다.
 export function computeOffset(
   model: GazeModel,

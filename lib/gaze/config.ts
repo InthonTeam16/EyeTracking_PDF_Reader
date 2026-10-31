@@ -15,6 +15,8 @@ export const GAZE_DATASET_FOLDS = 5;
 export const GAZE_OUTLIER_SIGMA = 2.5;
 export const GAZE_MIN_DATASET_SAMPLES = 20;
 export const GAZE_HEAD_FOLLOW_CORRELATION = 0.6;
+// 고개를 1도 들 때 시선이 올라가는 양(화면 높이 비율)
+export const GAZE_PITCH_Y_PER_DEGREE = -0.01;
 
 export const TASKS_VISION_WASM_PATH = "/mediapipe/tasks-vision";
 export const FACE_LANDMARKER_MODEL_PATH = "/models/face_landmarker.task";
