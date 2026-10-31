@@ -36,7 +36,8 @@ export function ReaderView({ blocks, activeBlockId, aside }: ReaderViewProps) {
                 <p
                   data-block-id={block.id}
                   className={cn(
-                    "rounded-lg px-4 py-3 text-lg leading-loose transition-[filter,opacity,background-color] duration-300",
+                    // toBlocks가 제목과 본문 사이에 넣은 \n을 그대로 보여준다.
+                    "rounded-lg px-4 py-3 text-lg leading-loose whitespace-pre-line transition-[filter,opacity,background-color] duration-300",
                     active &&
                       "bg-accent text-accent-foreground ring-1 ring-ring/30",
                     focusing && !active && "opacity-40 blur-[3px]",
