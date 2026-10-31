@@ -1,9 +1,13 @@
+import type { ReactNode } from "react";
+
 import { cn } from "@/lib/utils";
 import type { Block } from "@/types";
 
 type ReaderViewProps = {
   blocks: Block[];
   activeBlockId: string | null;
+  // 특정 블록 옆에 띄울 요소 (부가 설명 팝업)
+  aside?: { blockId: string; content: ReactNode };
 };
 
 function groupByPage(blocks: Block[]): [number, Block[]][] {
@@ -14,7 +18,7 @@ function groupByPage(blocks: Block[]): [number, Block[]][] {
   return [...pages.entries()];
 }
 
-export function ReaderView({ blocks, activeBlockId }: ReaderViewProps) {
+export function ReaderView({ blocks, activeBlockId, aside }: ReaderViewProps) {
   // 시선을 아직 못 잡았으면(null) 모든 블록을 선명하게 둔다.
   const focusing = activeBlockId !== null;
 
@@ -28,17 +32,20 @@ export function ReaderView({ blocks, activeBlockId }: ReaderViewProps) {
           {pageBlocks.map((block) => {
             const active = block.id === activeBlockId;
             return (
-              <p
-                key={block.id}
-                data-block-id={block.id}
-                className={cn(
-                  "rounded-lg px-4 py-3 text-lg leading-loose transition-[filter,opacity,background-color] duration-300",
-                  active && "bg-accent text-accent-foreground ring-1 ring-ring/30",
-                  focusing && !active && "opacity-40 blur-[3px]",
-                )}
-              >
-                {block.text}
-              </p>
+              <div key={block.id} className="relative">
+                <p
+                  data-block-id={block.id}
+                  className={cn(
+                    "rounded-lg px-4 py-3 text-lg leading-loose transition-[filter,opacity,background-color] duration-300",
+                    active &&
+                      "bg-accent text-accent-foreground ring-1 ring-ring/30",
+                    focusing && !active && "opacity-40 blur-[3px]",
+                  )}
+                >
+                  {block.text}
+                </p>
+                {aside?.blockId === block.id && aside.content}
+              </div>
             );
           })}
         </section>
