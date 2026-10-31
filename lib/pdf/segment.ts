@@ -40,6 +40,8 @@ const PAGE_NUMBER = /^[-–—\s]*\d+(\s*\/\s*\d+)?[-–—\s]*$/;
 // "[페이지] 012", "Page 3" 같은 쪽 표시는 본문 중간에 있어도 지운다
 const PAGE_LABEL = /^[[(]?\s*(페이지|쪽|page|p\.?)\s*[\])]?\s*[-–]?\s*\d+\s*$/i;
 // 새 항목의 시작: [화자] 표시, 목록 기호, 번호 ([12] 같은 인용 번호는 제외)
+// 번호·기호로 시작하는 목록 항목
+const LIST_ITEM = /^([•·▪◦‣※○●■□▶-]\s|\d{1,2}[.)]\s|\(\d{1,2}\)\s|[①-⑳]|[가-하][.)]\s)/;
 const ITEM_START = /^(\[[^\]\d\s][^\]]{0,14}\]|[•·▪◦‣※○●■□▶-]\s|\d{1,2}[.)]\s|\(\d{1,2}\)\s|[①-⑳]|[가-하][.)]\s)/;
 
 // pages[i]는 i+1페이지의 내용
@@ -120,6 +122,18 @@ function dominantFontSize(pieces: Piece[]): number {
 
 // 단 맨 위·아래의 쪽번호, 그리고 여러 페이지에 반복되는 머리말·꼬리말을 지운다
 function removeRunningLines(pages: FlowLine[][][]): FlowLine[][][] {
+  // 끝 줄을 지우면 그 앞 줄이 새 끝 줄이 되므로(저작권 줄 → 그 위의 쪽번호) 바뀌지 않을 때까지 반복한다
+  const count = (ps: FlowLine[][][]) => ps.flat(2).length;
+  let current = pages;
+  for (let pass = 0; pass < 3; pass++) {
+    const next = removeRunningLinesOnce(current);
+    if (count(next) === count(current)) break;
+    current = next;
+  }
+  return current;
+}
+
+function removeRunningLinesOnce(pages: FlowLine[][][]): FlowLine[][][] {
   const key = (line: FlowLine) => line.text.replace(/\d+/g, "#");
   const edges = (lines: FlowLine[]) => [lines[0], lines[lines.length - 1]].filter(Boolean);
   const edgeCount = new Map<string, number>();
@@ -283,6 +297,11 @@ function mergeShort(paragraphs: Paragraph[]): Paragraph[] {
   const result: Paragraph[] = [];
   let pending: Paragraph | null = null;
   for (const p of paragraphs) {
+    // 번호·기호 목록 항목(선택지 ①②…)끼리는 짧아도 합치지 않는다 (대본의 짧은 대사는 합친다)
+    if (pending && LIST_ITEM.test(pending.text) && LIST_ITEM.test(p.text)) {
+      result.push(pending);
+      pending = null;
+    }
     const merged: Paragraph = pending ? { ...p, text: `${pending.text}\n${p.text}`, page: pending.page } : p;
     if (merged.text.length < MIN_BLOCK_CHARS) {
       pending = merged;

@@ -12,7 +12,11 @@ export const ROW_CENTER_TOLERANCE = 0.5;
 export const GUTTER_MIN_RATIO = 1;
 // 단 경계로 인정할 최소 행 수, 그리고 페이지 전체 행 대비 비율
 export const GUTTER_MIN_ROWS = 3;
-export const GUTTER_ROW_RATIO = 0.25;
+export const GUTTER_ROW_RATIO = 0.1;
+// 그 위치 양쪽에 글이 있는 행 중 이 비율 이상이 그 위치에서 비어 있어야 단 경계 후보다
+export const GUTTER_EMPTY_SHARE = 0.7;
+// 단 경계를 찾을 때 페이지를 자르는 띠의 높이 (글자 크기 대비)
+export const GUTTER_STRIP_RATIO = 1.5;
 // 단 경계 양쪽 글의 행당 글자 수 중간값이 이보다 적으면 단이 아니라 표·목록으로 본다
 export const COLUMN_MIN_CHARS = 8;
 // 단 경계 양쪽에서 가장 긴 줄의 이 비율 이상인 "꽉 찬 줄"이 이 비율 미만이면 본문 단이 아니라 표의 열로 본다
@@ -44,6 +48,8 @@ export const INDENT_RATIO = 1;
 export const SUPERSCRIPT_SIZE_RATIO = 0.9;
 export const SCRIPT_RISE_RATIO = 0.15;
 export const SCRIPT_DROP_RATIO = 0.08;
+// 수식 큰 연산자(∑·∏)의 기준선을 내릴 양 (글자 크기 대비). TeX 큰 연산자는 기준선 아래로 약 1글자 늘어진다.
+export const BIG_OPERATOR_DROP = 0.85;
 // 이보다 넓은 가로선은 분수선이 아니다 (표의 가로줄 등, pt)
 export const FRACTION_MAX_WIDTH = 150;
 
