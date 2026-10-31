@@ -202,6 +202,9 @@ export function PdfPages({
     return () => {
       cancelled = true;
       task?.destroy();
+      // 페이지가 숨겨졌다 돌아올 때도 여기를 지나므로, 닫힌 문서로 그리지 않게 비운다.
+      setDoc(null);
+      setBaseSize(null);
     };
   }, [file]);
 

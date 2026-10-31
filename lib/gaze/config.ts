@@ -30,15 +30,6 @@ export const GAZE_CENTER_READING = {
   repeatMs: 2000,
 };
 
-// 부가 설명: 블록의 예상 읽기 시간(글자 수 ÷ charsPerSecond)의 overrunRatio배만큼 머물면 띄운다.
-// 짧은 블록에서 너무 빨리 뜨지 않도록 minMs보다 짧아지지 않게 한다.
-// TODO(demo): 임시값. 팀원들이 데모 PDF를 읽어 보고 조정한다.
-export const GAZE_EXPLAIN_DWELL = {
-  charsPerSecond: 10,
-  overrunRatio: 1.5,
-  minMs: 4000,
-};
-
 // 개인 보정 점의 위치(화면 %)
 const CALIBRATION_COLUMNS = [4, 40.8, 59.2, 96];
 const CALIBRATION_ROWS = [4, 50, 96];
