@@ -4,6 +4,7 @@ import {
   BookOpenIcon,
   CameraIcon,
   Columns2Icon,
+  CrosshairIcon,
   FileTextIcon,
   MousePointer2Icon,
   type LucideIcon,
@@ -33,6 +34,8 @@ type ReaderHeaderProps = {
   onSwapPanes: () => void;
   gazeMode: GazeMode;
   onGazeModeToggle: () => void;
+  // 보정을 마친 웹캠 모드에서만 넘겨서 "시선 다시 맞추기" 버튼을 보여준다
+  onRecalibrate?: () => void;
   // 오른쪽 끝에 붙는 설정 버튼
   settings: ReactNode;
 };
@@ -45,6 +48,7 @@ export function ReaderHeader({
   onSwapPanes,
   gazeMode,
   onGazeModeToggle,
+  onRecalibrate,
   settings,
 }: ReaderHeaderProps) {
   return (
@@ -103,6 +107,17 @@ export function ReaderHeader({
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-2">
+        {onRecalibrate && (
+          <Button
+            data-gaze-ignore
+            variant="outline"
+            size="sm"
+            onClick={onRecalibrate}
+          >
+            <CrosshairIcon />
+            시선 다시 맞추기
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={onGazeModeToggle}>
           {gazeMode === "webcam" ? <MousePointer2Icon /> : <CameraIcon />}
           {gazeMode === "webcam" ? "마우스 모드로" : "웹캠 모드로"}
