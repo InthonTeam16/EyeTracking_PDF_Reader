@@ -25,6 +25,7 @@ import {
 } from "@/components/reader/reader-settings";
 import { useTheme } from "@/components/reader/theme";
 import { ReaderView } from "@/components/reader/reader-view";
+import { useCenterReading } from "@/components/reader/use-center-reading";
 import { useExplanations } from "@/components/reader/use-explanations";
 import {
   useReaderBlocks,
@@ -38,6 +39,7 @@ import {
   type GazeStatus,
 } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
+import { useDwell } from "@/lib/gaze/useDwell";
 import { cn } from "@/lib/utils";
 import type { GazeEvents, GazeState } from "@/types";
 
@@ -76,6 +78,8 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   // true면 원본 PDF를 왼쪽에 둔다
   const [pdfFirst, setPdfFirst] = useState(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  // 읽는 블록을 가운데로 데려오는 집중 읽기 스크롤 영역
+  const readingScrollRef = useRef<HTMLDivElement>(null);
   // 원본 PDF에서 다시 찾은 블록별 실제 페이지. 찾기 전에는 toBlocks가 준 페이지를 쓴다.
   const [resolvedPages, setResolvedPages] = useState<Map<
     string,
@@ -156,10 +160,14 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             // 끌어서 바꾸는 비율이라 Tailwind 클래스로 정할 수 없다.
             style={split ? { flexBasis: `${readingRatio * 100}%` } : undefined}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              ref={readingScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
               <ReaderView
                 blocks={pagedBlocks}
                 showPages={kind === "pdf"}
+                centerSpace
                 activeBlockId={gaze.activeBlockId}
                 settings={settings}
                 notice={<GazeNotice mode={gazeMode} message={message} />}
@@ -226,6 +234,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   return gazeMode === "webcam" ? (
     <WebcamGaze
       events={events}
+      scrollRef={readingScrollRef}
       onFail={() => {
         setFallbackReason("웹캠을 쓸 수 없어 마우스 모드로 전환했어요.");
         setGazeMode("mouse");
@@ -235,6 +244,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   ) : (
     <MouseGaze
       events={events}
+      scrollRef={readingScrollRef}
       message={fallbackReason ?? "마우스 커서를 시선 대신 쓰는 중이에요."}
       render={render}
     />
@@ -350,14 +360,32 @@ function readGazeExperiment(): {
   };
 }
 
+// 읽는 블록을 가운데에 고정하고 눈짓으로 한 블록씩 넘긴다 (use-center-reading.ts).
+// 시선 좌표로 블록을 바로 고르는 방식은 웹캠 오차가 커서 쓰지 않는다.
+// 부가 설명 타이머는 가운데 블록 기준이고, 원본 PDF를 보는 동안에는 재지 않는다.
+type CenterReadingProps = {
+  scrollRef: RefObject<HTMLElement | null>;
+};
+
+const LOOKING_AT_PDF_MESSAGE =
+  "원본 PDF를 보는 중이라 집중 읽기는 멈춰 있어요.";
+
 function WebcamGaze({
   events,
+  scrollRef,
   onFail,
   render,
-}: GazeSourceProps & { onFail: () => void }) {
+}: GazeSourceProps & CenterReadingProps & { onFail: () => void }) {
   const [experiment] = useState(readGazeExperiment);
-  const gaze = useGaze(events, { guided: true, ...experiment });
-  const activeBlockId = useLastBlockId(gaze.activeBlockId);
+  const gaze = useGaze(
+    { onSquint: events.onSquint },
+    { guided: true, ...experiment },
+  );
+  const { activeBlockId, lookingAtText } = useCenterReading(
+    gaze.point,
+    scrollRef,
+  );
+  useDwell(lookingAtText ? activeBlockId : null, events.onDwell);
   const failed = gaze.status.phase === "error";
   const { status } = gaze;
 
@@ -377,28 +405,31 @@ function WebcamGaze({
       )}
       {render(
         { ...gaze, activeBlockId },
-        describeWebcam(gaze.status, gaze.calibrated),
+        gaze.calibrated && !lookingAtText
+          ? LOOKING_AT_PDF_MESSAGE
+          : describeWebcam(gaze.status, gaze.calibrated),
       )}
     </>
   );
 }
 
+// 마우스 모드도 커서 높이로 같은 방식으로 넘긴다 (웹캠이 없을 때의 백업).
 function MouseGaze({
   events,
+  scrollRef,
   message,
   render,
-}: GazeSourceProps & { message: string }) {
-  const gaze = useMouseGaze(events);
-  const activeBlockId = useLastBlockId(gaze.activeBlockId);
-  return render({ ...gaze, activeBlockId }, message);
-}
-
-// 시선이 문단 사이 빈 곳에 있으면 직전에 본 블록을 계속 강조한다.
-// 설명 팝업(onDwell)은 원래 activeBlockId 기준이라 영향이 없다.
-function useLastBlockId(blockId: string | null): string | null {
-  const [lastBlockId, setLastBlockId] = useState(blockId);
-  if (blockId !== null && blockId !== lastBlockId) setLastBlockId(blockId);
-  return blockId ?? lastBlockId;
+}: GazeSourceProps & CenterReadingProps & { message: string }) {
+  const gaze = useMouseGaze({});
+  const { activeBlockId, lookingAtText } = useCenterReading(
+    gaze.point,
+    scrollRef,
+  );
+  useDwell(lookingAtText ? activeBlockId : null, events.onDwell);
+  return render(
+    { ...gaze, activeBlockId },
+    lookingAtText ? message : LOOKING_AT_PDF_MESSAGE,
+  );
 }
 
 // TODO(demo): 민서님 보정 오버레이가 나오면 보정 안내는 그쪽으로 옮긴다.

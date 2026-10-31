@@ -20,6 +20,8 @@ type ReaderViewProps = {
   notice?: ReactNode;
   // 원본 페이지 구분("원본 N쪽")을 보여줄지. 페이지가 없는 TXT·목업은 끈다.
   showPages?: boolean;
+  // "가운데 고정" 읽기에서 첫·마지막 블록도 가운데까지 올 수 있게 위아래 여백을 둔다.
+  centerSpace?: boolean;
 };
 
 // block.page는 toBlocks가 넣은 원본 PDF의 페이지 번호다.
@@ -38,6 +40,7 @@ export function ReaderView({
   aside,
   notice,
   showPages = true,
+  centerSpace = false,
 }: ReaderViewProps) {
   // 시선을 아직 못 잡았거나(null) 하이라이트를 껐으면 모든 블록을 선명하게 둔다.
   const focusing = settings.focus > 0 && activeBlockId !== null;
@@ -45,6 +48,7 @@ export function ReaderView({
   return (
     <article className="mx-auto flex w-full max-w-2xl flex-col gap-12 px-6 py-10">
       {notice}
+      {centerSpace && <div aria-hidden="true" className="h-[40vh] shrink-0" />}
       {groupByPage(blocks).map(([page, pageBlocks]) => (
         <section key={page} className="flex flex-col gap-10">
           {showPages && (
@@ -77,6 +81,7 @@ export function ReaderView({
           })}
         </section>
       ))}
+      {centerSpace && <div aria-hidden="true" className="h-[45vh] shrink-0" />}
     </article>
   );
 }
