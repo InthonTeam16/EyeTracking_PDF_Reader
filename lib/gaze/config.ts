@@ -10,6 +10,10 @@ export const GAZE_MAX_TRAINING_CLICKS = 60;
 export const GAZE_RIDGE_LAMBDA = 1;
 export const GAZE_FEATURE_AVERAGE_FRAMES = 5;
 export const MIN_EYE_OPEN_RATIO = 0.1;
+export const GAZE_CORRECTION_CLICKS = 5;
+export const GAZE_DATASET_FOLDS = 5;
+export const GAZE_OUTLIER_SIGMA = 2.5;
+export const GAZE_MIN_DATASET_SAMPLES = 20;
 
 export const TASKS_VISION_WASM_PATH = "/mediapipe/tasks-vision";
 export const FACE_LANDMARKER_MODEL_PATH = "/models/face_landmarker.task";
