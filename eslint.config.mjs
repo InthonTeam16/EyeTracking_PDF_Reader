@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // scripts/copy-face-mesh.mjs가 복사한 외부 파일
+    "public/mediapipe/**",
   ]),
 ]);
 
