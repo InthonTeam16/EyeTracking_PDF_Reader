@@ -15,6 +15,9 @@ export const GUTTER_MIN_ROWS = 3;
 export const GUTTER_ROW_RATIO = 0.25;
 // 단 경계 양쪽 글의 행당 글자 수 중간값이 이보다 적으면 단이 아니라 표·목록으로 본다
 export const COLUMN_MIN_CHARS = 8;
+// 단 경계 양쪽에서 가장 긴 줄의 이 비율 이상인 "꽉 찬 줄"이 이 비율 미만이면 본문 단이 아니라 표의 열로 본다
+export const COLUMN_FULL_LINE_RATIO = 0.85;
+export const COLUMN_FULL_LINE_SHARE = 0.35;
 // 전체 폭 문단의 마지막 줄로 볼 바로 위 행과의 최대 거리 (글자 크기 대비)
 export const ROW_ATTACH_RATIO = 1.6;
 // 이미지·도형이 페이지의 이 비율보다 넓으면 배경으로 보고 무시한다
@@ -37,9 +40,12 @@ export const VERY_SHORT_LINE_RATIO = 0.6;
 // 왼쪽 여백보다 글자 크기의 이 배수 이상 들여 쓰면 새 문단
 export const INDENT_RATIO = 1;
 
-// 위첨자로 볼 글자 크기 비율과 기준선에서 올라간 정도 (글자 크기 대비)
+// 첨자로 볼 글자 크기 비율, 기준선에서 올라간(위첨자)·내려간(아래첨자) 정도 (글자 크기 대비)
 export const SUPERSCRIPT_SIZE_RATIO = 0.9;
-export const SUPERSCRIPT_RISE_RATIO = 0.2;
+export const SCRIPT_RISE_RATIO = 0.15;
+export const SCRIPT_DROP_RATIO = 0.08;
+// 이보다 넓은 가로선은 분수선이 아니다 (표의 가로줄 등, pt)
+export const FRACTION_MAX_WIDTH = 150;
 
 // 줄 안에서 이보다 넓은 간격은 표의 칸 사이로 본다 (글자 크기 대비)
 export const TABLE_GAP_RATIO = 2;
@@ -52,6 +58,11 @@ export const TABLE_EDGE_GAP_RATIO = 1;
 // 본문보다 이 비율 이상 작고, 단 너비의 이 비율보다 짧은 줄은 그림 안 글자로 보고 지운다
 export const SMALL_FONT_RATIO = 0.85;
 export const SHORT_LABEL_RATIO = 0.5;
+// 그림 위·아래 이 거리(글자 크기 대비) 안에 있고, 단 왼쪽에서 이만큼 들어가 시작하는 짧은 줄은 그림 라벨로 보고 지운다
+export const FIGURE_LABEL_DISTANCE_RATIO = 1.5;
+export const FIGURE_LABEL_INDENT_RATIO = 2.5;
+// 양옆이 이만큼(글자 크기 대비) 비어 있고 등호 등이 있는 줄은 별행 수식으로 본다
+export const MATH_SIDE_MARGIN_RATIO = 2;
 // 이보다 짧은 "표 1 ..." 문단은 구두점이 없어도 캡션으로 본다
 export const CAPTION_MAX_CHARS = 150;
 
@@ -66,6 +77,11 @@ export const WORD_WRAP_THRESHOLD = 0.6;
 export const RAGGED_RIGHT_RATIO = 1;
 export const RAGGED_LINE_SHARE = 0.3;
 export const RAGGED_MIN_LINES = 5;
+
+// 본문보다 이 비율 미만으로 작은 글자의 단·페이지 끝 문단은 각주로 보고, 끊긴 문장을 이을 때 건너뛴다
+export const FOOTNOTE_FONT_RATIO = 0.95;
+// 끊긴 문장을 이을 때 건너뛸 수 있는 각주 문단 수
+export const MAX_FOOTNOTES = 3;
 
 // 이 비율 이상의 페이지 위·아래에 반복되는 줄은 머리말·꼬리말로 보고 지운다
 export const RUNNING_LINE_PAGE_RATIO = 0.5;

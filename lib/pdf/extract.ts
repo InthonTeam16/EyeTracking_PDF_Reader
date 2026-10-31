@@ -1,6 +1,7 @@
 import type { OPS as PdfOps, PDFPageProxy } from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { BACKGROUND_IMAGE_RATIO, FIGURE_MERGE_GAP, FIGURE_MIN_SHAPES, FIGURE_MIN_THICKNESS } from "./config";
+import { composeMath } from "./math";
 
 // 텍스트 조각. y는 기준선이고 PDF 좌표계라 위로 갈수록 크다.
 export type Piece = { str: string; x: number; y: number; width: number; fontSize: number };
@@ -41,7 +42,10 @@ export async function extractPage(page: PDFPageProxy, ops: typeof PdfOps): Promi
     }))
     .filter((p) => !figures.some((b) => contains(b, p.x + p.width / 2, centerY(p))));
 
-  return { pieces, figures };
+  // 얇은 가로선은 분수선·근호 윗줄 후보, 얇은 세로선은 표 테두리 판별용이다
+  const rules = shapes.filter((b) => b.y1 - b.y0 < FIGURE_MIN_THICKNESS && b.x1 - b.x0 >= 2);
+  const verticals = shapes.filter((b) => b.x1 - b.x0 < FIGURE_MIN_THICKNESS && b.y1 - b.y0 >= 2);
+  return { pieces: composeMath(pieces, rules, verticals), figures };
 }
 
 export function centerY(piece: Piece): number {

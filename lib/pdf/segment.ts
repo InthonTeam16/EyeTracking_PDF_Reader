@@ -1,6 +1,8 @@
 import type { Block } from "@/types";
 import {
   FONT_SIZE_CHANGE_RATIO,
+  FOOTNOTE_FONT_RATIO,
+  MAX_FOOTNOTES,
   INDENT_RATIO,
   MAX_BLOCK_CHARS,
   MIN_BLOCK_CHARS,
@@ -13,7 +15,7 @@ import {
   VERY_SHORT_LINE_RATIO,
 } from "./config";
 import type { Box, PageContent, Piece } from "./extract";
-import { isCaption, removeNonBody, type FlowLine } from "./filter";
+import { displayMathFlags, isCaption, removeNonBody, type FlowLine } from "./filter";
 import { layoutPage, median } from "./layout";
 import { piecesToLines, type Line } from "./lines";
 import { buildVocab, joinLines, splitToFit, type Vocab } from "./text";
@@ -26,6 +28,9 @@ type Paragraph = {
   endFontSize: number;
   indented: boolean;
   boundary: boolean;
+  // flow: 몇 번째 단(흐름)에서 나왔는지, flowStart: 그 단의 첫 문단인지
+  flow: number;
+  flowStart: boolean;
 };
 
 const SENTENCE_END = /[.!?。…"'”’)\]]$/;
@@ -50,15 +55,22 @@ export function pagesToBlocks(pages: PageContent[]): Block[] {
     isRaggedRight(linesByPage.flat()),
   );
   const flowsByPage = removeRunningLines(
-    linesByPage.map((flows) => flows.map((lines) => removeNonBody(lines, bodyFont))),
+    linesByPage.map((flows, i) => flows.map((lines) => removeNonBody(lines, bodyFont, pages[i].figures))),
   );
 
+  let flowIndex = 0;
   const paragraphs = flowsByPage.flatMap((flows, i) => {
     const gaps = flows.flatMap((lines) => lines.slice(1).map((line, k) => lines[k].y - line.y));
     const medianGap = median(gaps.filter((g) => g > 0));
-    return flows.flatMap((lines) =>
-      splitParagraphs(lines, medianGap, bodyFont, pages[i].figures, vocab).map((p) => ({ ...p, page: i + 1 })),
-    );
+    return flows.flatMap((lines) => {
+      const flow = flowIndex++;
+      return splitParagraphs(lines, medianGap, bodyFont, pages[i].figures, vocab).map((p, k) => ({
+        ...p,
+        page: i + 1,
+        flow,
+        flowStart: k === 0,
+      }));
+    });
   });
 
   const body = joinAtBoundaries(removeCaptions(paragraphs), bodyFont, vocab);
@@ -136,11 +148,12 @@ function splitParagraphs(
   bodyFont: number,
   figures: Box[],
   vocab: Vocab,
-): Omit<Paragraph, "page">[] {
+): Omit<Paragraph, "page" | "flow" | "flowStart">[] {
   if (lines.length === 0) return [];
 
   const maxWidth = Math.max(...lines.map((l) => l.width));
   const leftMargin = Math.min(...lines.map((l) => l.x));
+  const isMath = displayMathFlags(lines);
   const isIndented = (line: FlowLine) => line.x - leftMargin > line.fontSize * INDENT_RATIO;
   // 첫 줄 들여쓰기: 앞 줄보다 들어가 있고, 다음 줄은 다시 나온다.
   // (초록처럼 통째로 들여 쓴 영역이나 목록의 내어쓰기 줄은 새 문단이 아니다)
@@ -185,9 +198,16 @@ function splitParagraphs(
       prev.width < maxWidth * VERY_SHORT_LINE_RATIO ||
       isFirstLineIndent(i) ||
       isOutdent(i) ||
-      ITEM_START.test(line.text);
+      ITEM_START.test(line.text) ||
+      // 별행 수식은 앞뒤 본문과 나눈다
+      isMath[i] !== isMath[i - 1];
 
-    if (isBreak) {
+    if (isMath[i] && isMath[i - 1] && !isBreak) {
+      // 여러 줄 수식은 줄바꿈으로 잇는다
+      current.text += `\n${line.text}`;
+      current.endFontSize = line.fontSize;
+      linesInParagraph++;
+    } else if (isBreak) {
       paragraphs.push(start(line, removedBetween));
       linesInParagraph = 1;
     } else {
@@ -223,9 +243,24 @@ function removeCaptions(paragraphs: Paragraph[]): Paragraph[] {
 // 앞 문단이 문장 중간에서 끝났고, 둘 다 본문 크기이며, 다음 문단이 들여쓰기로 시작하지 않을 때만.
 function joinAtBoundaries(paragraphs: Paragraph[], bodyFont: number, vocab: Vocab): Paragraph[] {
   const isBody = (size: number) => Math.abs(size - bodyFont) / bodyFont <= FONT_SIZE_CHANGE_RATIO;
+  // 각주는 본문보다 조금만 작은 경우가 많다 (본문 10pt, 각주 9pt)
+  const isSmall = (size: number) => size < bodyFont * FOOTNOTE_FONT_RATIO;
   const result: Paragraph[] = [];
   for (const p of paragraphs) {
-    const last = result[result.length - 1];
+    // 단·페이지 끝의 각주(작은 글자)는 건너뛰고 그 앞 본문 문단과 잇는다. 각주는 이어진 문단 뒤로 밀린다.
+    let j = result.length - 1;
+    // 새 단이 시작될 때, 바로 앞 단의 끝에 붙은 각주만 건너뛴다
+    const prevFlow = result[j]?.flow;
+    // (각주는 몇 개뿐이고, 이어 붙일 문단은 본문 크기여야 한다 — 참고문헌처럼 단 전체가 작은 글자면 건너뛰지 않는다)
+    if (p.flowStart && result.length > 0) {
+      while (j > 0 && isSmall(result[j].fontSize) && result[j].flow === prevFlow) j--;
+      const skipped = result.length - 1 - j;
+      const isPlainBody = (size: number) => Math.abs(size - bodyFont) / bodyFont <= 0.05;
+      if (result[j]?.flow !== prevFlow || skipped > MAX_FOOTNOTES || !isPlainBody(result[j].endFontSize)) {
+        j = result.length - 1;
+      }
+    }
+    const last = result[j];
     if (
       last &&
       p.boundary &&
