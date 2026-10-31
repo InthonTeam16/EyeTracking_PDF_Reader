@@ -3,6 +3,7 @@
 import { CameraIcon, Loader2Icon, MousePointer2Icon } from "lucide-react";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent,
@@ -18,10 +19,11 @@ import {
   type ViewMode,
 } from "@/components/reader/reader-header";
 import {
-  HIGHLIGHT_BOX_CLASSES,
+  HIGHLIGHT_CLASSES,
   ReaderSettingsButton,
   useReaderSettings,
 } from "@/components/reader/reader-settings";
+import { useTheme } from "@/components/reader/theme";
 import { ReaderView } from "@/components/reader/reader-view";
 import { useExplanations } from "@/components/reader/use-explanations";
 import {
@@ -60,17 +62,33 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   // 웹캠을 못 써서 마우스로 넘어온 경우 그 이유를 보여준다.
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
   const [settings, updateSettings] = useReaderSettings();
+  const { dark } = useTheme();
   // 분할 보기에서 집중 읽기 칸이 차지하는 비율
   const [readingRatio, setReadingRatio] = useState(0.5);
   // true면 원본 PDF를 왼쪽에 둔다
   const [pdfFirst, setPdfFirst] = useState(false);
   const splitRef = useRef<HTMLDivElement>(null);
+  // 원본 PDF에서 다시 찾은 블록별 실제 페이지. 찾기 전에는 toBlocks가 준 페이지를 쓴다.
+  const [resolvedPages, setResolvedPages] = useState<Map<
+    string,
+    number
+  > | null>(null);
+  const pagedBlocks = useMemo(
+    () =>
+      resolvedPages
+        ? blocks.map((block) => ({
+            ...block,
+            page: resolvedPages.get(block.id) ?? block.page,
+          }))
+        : blocks,
+    [blocks, resolvedPages],
+  );
 
   // 부가 설명을 끄면 오래 응시하거나 찡그려도 팝업을 띄우지 않는다.
   const events: GazeEvents = settings.explain
     ? { onDwell: open, onSquint: open }
     : {};
-  const totalPages = Math.max(...blocks.map((block) => block.page));
+  const totalPages = Math.max(...pagedBlocks.map((block) => block.page));
   const split = viewMode === "split";
   const toggleGazeMode = () => {
     setFallbackReason(null);
@@ -85,7 +103,9 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   };
 
   const render = (gaze: GazeState, message: string) => {
-    const activeBlock = blocks.find((block) => block.id === gaze.activeBlockId);
+    const activeBlock = pagedBlocks.find(
+      (block) => block.id === gaze.activeBlockId,
+    );
     const activePage = activeBlock?.page ?? null;
 
     return (
@@ -120,7 +140,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
           >
             <div className="min-h-0 flex-1 overflow-y-auto">
               <ReaderView
-                blocks={blocks}
+                blocks={pagedBlocks}
                 activeBlockId={gaze.activeBlockId}
                 settings={settings}
                 notice={<GazeNotice mode={gazeMode} message={message} />}
@@ -157,15 +177,21 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             {file ? (
               <PdfPages
                 file={file}
-                syncPage={settings.syncPdf ? activePage : null}
+                follow={settings.syncPdf}
                 thumbnailsSide={split && pdfFirst ? "left" : "right"}
+                inverted={dark && settings.darkPdf}
+                blocks={blocks}
+                onResolvePages={setResolvedPages}
                 highlight={
-                  settings.pdfHighlight && activeBlock
+                  activeBlock
                     ? {
                         page: activeBlock.page,
                         text: activeBlock.text,
+                        // 형광펜이 "없음"이어도 따라가기에 쓰려고 위치는 찾는다.
                         className:
-                          HIGHLIGHT_BOX_CLASSES[settings.pdfHighlightColor],
+                          settings.pdfHighlightColor === "none"
+                            ? null
+                            : HIGHLIGHT_CLASSES[settings.pdfHighlightColor],
                       }
                     : null
                 }
