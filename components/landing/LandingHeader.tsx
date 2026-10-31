@@ -12,7 +12,7 @@ export function LandingHeader() {
           className="flex items-center gap-2.5 text-[17px] font-bold text-foreground"
         >
           <Eye className="size-6" strokeWidth={1.8} aria-hidden="true" />
-          EyeTracking PDF Reader
+          눈길
         </Link>
         <div className="ml-auto">
           <ThemeToggle />
