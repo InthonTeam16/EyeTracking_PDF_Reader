@@ -2,6 +2,7 @@
 
 import { CameraIcon, Loader2Icon, MousePointer2Icon } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -28,6 +29,10 @@ import { ReaderView } from "@/components/reader/reader-view";
 import { useCenterReading } from "@/components/reader/use-center-reading";
 import { useExplanations } from "@/components/reader/use-explanations";
 import {
+  readingDwellMs,
+  useReadingDwell,
+} from "@/components/reader/use-reading-dwell";
+import {
   useReaderBlocks,
   type ReaderDocument,
 } from "@/components/reader/use-reader-blocks";
@@ -39,7 +44,6 @@ import {
   type GazeStatus,
 } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
-import { useDwell } from "@/lib/gaze/useDwell";
 import { cn } from "@/lib/utils";
 import type { GazeEvents, GazeState } from "@/types";
 
@@ -63,7 +67,14 @@ export function ReaderScreen() {
 // 블록이 준비된 뒤에만 시선 추적과 설명 팝업을 붙인다.
 function ReaderContent({ doc }: { doc: ReaderDocument }) {
   const { blocks, pdf: file, kind, title } = doc;
-  const { openBlockId, explanation, open, close } = useExplanations(blocks);
+  const { openBlockId, explanation, open, close, closeUnless } =
+    useExplanations(blocks);
+  // 블록마다 예상 읽기 시간보다 오래 머물 때 설명을 띄운다 (use-reading-dwell.ts).
+  const dwellMsFor = useCallback(
+    (blockId: string) =>
+      readingDwellMs(blocks.find((block) => block.id === blockId)?.text ?? ""),
+    [blocks],
+  );
   const [chosenViewMode, setViewMode] = useState<ViewMode>("focus");
   // 원본 PDF가 없는 문서(TXT, 목업)는 집중 읽기만 쓴다.
   const hasPdf = file !== null;
@@ -234,6 +245,8 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   return gazeMode === "webcam" ? (
     <WebcamGaze
       events={events}
+      dwellMsFor={dwellMsFor}
+      onActiveBlockChange={closeUnless}
       scrollRef={readingScrollRef}
       onFail={() => {
         setFallbackReason("웹캠을 쓸 수 없어 마우스 모드로 전환했어요.");
@@ -244,6 +257,8 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   ) : (
     <MouseGaze
       events={events}
+      dwellMsFor={dwellMsFor}
+      onActiveBlockChange={closeUnless}
       scrollRef={readingScrollRef}
       message={fallbackReason ?? "마우스 커서를 시선 대신 쓰는 중이에요."}
       render={render}
@@ -338,8 +353,29 @@ function ReadingProgress({
 
 type GazeSourceProps = {
   events: GazeEvents;
+  // 블록별 설명 기준 시간(ms)
+  dwellMsFor: (blockId: string) => number;
+  // 읽는 블록이 바뀌면 알린다 (다른 블록의 설명 팝업을 닫는 데 쓴다)
+  onActiveBlockChange: (blockId: string | null) => void;
   render: (gaze: GazeState, message: string) => ReactNode;
 };
+
+// 읽는 블록 기준으로 설명 타이머를 재고, 블록이 바뀌면 알린다.
+// 원본 PDF를 보는 동안(lookingAtText가 false)에는 타이머를 재지 않는다.
+function useBlockExplain(
+  activeBlockId: string | null,
+  lookingAtText: boolean,
+  { events, dwellMsFor, onActiveBlockChange }: Omit<GazeSourceProps, "render">,
+) {
+  useReadingDwell(
+    lookingAtText ? activeBlockId : null,
+    activeBlockId ? dwellMsFor(activeBlockId) : 0,
+    events.onDwell,
+  );
+  useEffect(() => {
+    onActiveBlockChange(activeBlockId);
+  }, [activeBlockId, onActiveBlockChange]);
+}
 
 // 기본은 기하 모델 + 판단 미루기. 비교할 때는 주소의 ?gaze= 뒤에 쉼표로 이어 붙인다 (예: ?gaze=iris,nodefer).
 // iris 홍채 회귀, nodefer 바로 판단, legacy 이전 방식(이동 평균 + 좌표 아래 블록), eyelook 세로 입력 추가
@@ -372,6 +408,8 @@ const LOOKING_AT_PDF_MESSAGE =
 
 function WebcamGaze({
   events,
+  dwellMsFor,
+  onActiveBlockChange,
   scrollRef,
   onFail,
   render,
@@ -385,7 +423,11 @@ function WebcamGaze({
     gaze.point,
     scrollRef,
   );
-  useDwell(lookingAtText ? activeBlockId : null, events.onDwell);
+  useBlockExplain(activeBlockId, lookingAtText, {
+    events,
+    dwellMsFor,
+    onActiveBlockChange,
+  });
   const failed = gaze.status.phase === "error";
   const { status } = gaze;
 
@@ -416,6 +458,8 @@ function WebcamGaze({
 // 마우스 모드도 커서 높이로 같은 방식으로 넘긴다 (웹캠이 없을 때의 백업).
 function MouseGaze({
   events,
+  dwellMsFor,
+  onActiveBlockChange,
   scrollRef,
   message,
   render,
@@ -425,7 +469,11 @@ function MouseGaze({
     gaze.point,
     scrollRef,
   );
-  useDwell(lookingAtText ? activeBlockId : null, events.onDwell);
+  useBlockExplain(activeBlockId, lookingAtText, {
+    events,
+    dwellMsFor,
+    onActiveBlockChange,
+  });
   return render(
     { ...gaze, activeBlockId },
     lookingAtText ? message : LOOKING_AT_PDF_MESSAGE,

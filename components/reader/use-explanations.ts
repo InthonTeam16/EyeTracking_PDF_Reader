@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { Block, ExplainRequest, ExplainResponse } from "@/types";
 
@@ -53,10 +53,18 @@ export function useExplanations(blocks: Block[]) {
       );
   };
 
+  // 읽는 블록이 바뀌면 다른 블록의 설명은 닫는다. 같은 블록을 보는 동안에는 둔다.
+  const closeUnless = useCallback((blockId: string | null) => {
+    setOpenBlockId((current) =>
+      current !== null && current !== blockId ? null : current,
+    );
+  }, []);
+
   return {
     openBlockId,
     explanation: openBlockId ? (explanations[openBlockId] ?? null) : null,
     open,
     close: () => setOpenBlockId(null),
+    closeUnless,
   };
 }
