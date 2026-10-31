@@ -30,6 +30,34 @@ export const GAZE_CENTER_READING = {
   repeatMs: 2000,
 };
 
+// 보정 때와 자세가 달라졌는지 볼 기준. 거리는 비율(0.2면 ±20%), 위치는 cm, 각도는 도.
+// updateMs는 수치를 화면에 알리는 간격이다.
+// TODO(demo): 임시값. 자세를 바꿔 가며 정확도를 재 보고 오차가 커지는 지점으로 조정한다.
+export const GAZE_POSTURE = {
+  distanceRatio: 0.2,
+  movedCm: 6,
+  yawDegrees: 15,
+  pitchDegrees: 15,
+  holdMs: 3000,
+  clearMs: 1000,
+  updateMs: 250,
+};
+
+// 보정 전 시작 자세를 맞추는 기준. x, y는 영상 안 눈 가운데 목표 위치(0~1)와 허용 범위,
+// 눈 사이 거리는 영상 폭 대비 비율, 각도는 도. 맞은 상태가 holdMs 이어지면 보정을 시작한다.
+// TODO(demo): 임시값. 카메라 화각이 노트북마다 달라 넉넉히 잡았다. 실제 웹캠으로 조정한다.
+export const GAZE_FACE_GUIDE = {
+  x: 0.5,
+  y: 0.45,
+  xRange: 0.12,
+  yRange: 0.15,
+  minEyeDistance: 0.1,
+  maxEyeDistance: 0.26,
+  yawDegrees: 12,
+  pitchDegrees: 20,
+  holdMs: 1000,
+};
+
 // 개인 보정 점의 위치(화면 %)
 const CALIBRATION_COLUMNS = [4, 40.8, 59.2, 96];
 const CALIBRATION_ROWS = [4, 50, 96];

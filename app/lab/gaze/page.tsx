@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { CalibrationOverlay } from "@/components/gaze/CalibrationOverlay";
+import { CameraGuide } from "@/components/gaze/FaceGuide";
 import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
+import { PostureNotice } from "@/components/gaze/PostureNotice";
 import { Button } from "@/components/ui/button";
 import {
   GAZE_CORRECTION_CLICKS,
   GAZE_MIN_TRAINING_CLICKS,
 } from "@/lib/gaze/config";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
+import type { PostureDrift } from "@/lib/gaze/posture";
 import { type GazeStatus, useGaze } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
 import { getMockBlocks } from "@/lib/mock/blocks";
@@ -86,6 +89,10 @@ function describeStatus(status: GazeStatus): string {
   }
 }
 
+function describeDrift({ distanceRatio, moved, yaw, pitch }: PostureDrift) {
+  return `거리 ${Math.round(distanceRatio * 100)}% · 위치 ${moved.toFixed(1)}cm · 좌우 ${yaw.toFixed(1)}° · 상하 ${pitch.toFixed(1)}°`;
+}
+
 function WebcamGazeLab() {
   const [lastDwell, setLastDwell] = useState<string | null>(null);
   const gaze = useGaze(
@@ -101,7 +108,11 @@ function WebcamGazeLab() {
         <CalibrationOverlay
           clicks={status.clicks}
           faceVisible={status.faceVisible}
+          faceGuide={{ face: gaze.faceFrame }}
         />
+      )}
+      {status.phase === "tracking" && gaze.calibrated && (
+        <CameraGuide box="mini" face={gaze.faceFrame} />
       )}
       <Button
         variant="outline"
@@ -121,6 +132,17 @@ function WebcamGazeLab() {
       >
         {describeStatus(gaze.status)}
       </p>
+      {gaze.posture && (
+        <p data-testid="posture-drift" className="text-sm text-muted-foreground">
+          보정 때와의 차이: {describeDrift(gaze.posture.drift)}
+        </p>
+      )}
+      {gaze.posture?.issue && (
+        <PostureNotice
+          issue={gaze.posture.issue}
+          onRecalibrate={gaze.recalibrate}
+        />
+      )}
       <GazeLabView gaze={gaze} lastDwell={lastDwell} />
     </>
   );
