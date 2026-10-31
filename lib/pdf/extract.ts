@@ -1,6 +1,13 @@
 import type { OPS as PdfOps, PDFPageProxy } from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
-import { BACKGROUND_IMAGE_RATIO, FIGURE_MERGE_GAP, FIGURE_MIN_SHAPES, FIGURE_MIN_THICKNESS } from "./config";
+import {
+  BACKGROUND_IMAGE_RATIO,
+  BIG_OPERATOR_DROP,
+  FIGURE_MERGE_GAP,
+  FIGURE_MIN_SHAPES,
+  FIGURE_MIN_THICKNESS,
+} from "./config";
+import { composeMath } from "./math";
 
 // 텍스트 조각. y는 기준선이고 PDF 좌표계라 위로 갈수록 크다.
 export type Piece = { str: string; x: number; y: number; width: number; fontSize: number };
@@ -32,16 +39,36 @@ export async function extractPage(page: PDFPageProxy, ops: typeof PdfOps): Promi
     .filter((item): item is TextItem => "str" in item && item.str.trim() !== "")
     // 회전된 글자(그래프 축 라벨 등)와 세로쓰기는 본문이 아니다
     .filter((item) => item.dir !== "ttb" && Math.abs(item.transform[1]) < 0.01 * Math.abs(item.transform[0]))
-    .map((item) => ({
-      str: item.str,
-      x: item.transform[4],
-      y: item.transform[5],
-      width: item.width,
-      fontSize: Math.hypot(item.transform[2], item.transform[3]) || item.height,
-    }))
+    .map((item) =>
+      fixBigOperator({
+        str: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width,
+        fontSize: Math.hypot(item.transform[2], item.transform[3]) || item.height,
+      }),
+    )
     .filter((p) => !figures.some((b) => contains(b, p.x + p.width / 2, centerY(p))));
 
-  return { pieces, figures };
+  // 얇은 가로선은 분수선·근호 윗줄 후보, 얇은 세로선은 표 테두리 판별용이다
+  const rules = shapes.filter((b) => b.y1 - b.y0 < FIGURE_MIN_THICKNESS && b.x1 - b.x0 >= 2);
+  const verticals = shapes.filter((b) => b.x1 - b.x0 < FIGURE_MIN_THICKNESS && b.y1 - b.y0 >= 2);
+  return { pieces: composeMath(pieces, rules, verticals), figures };
+}
+
+// 수식 글꼴(TeX의 CMEX)은 큰 연산자를 ∑ → P, ∑(큰 것) → X, ∏(큰 것) → Y 처럼 다른 글자로 내보낸다.
+// 글자 폭이 일반 P·X·Y(글자 크기의 0.6~0.8배)보다 훨씬 넓은 것으로 가려낸다.
+const BIG_OPERATORS: Record<string, { minWidth: number; symbol: string }> = {
+  P: { minWidth: 1.0, symbol: "∑" },
+  X: { minWidth: 1.2, symbol: "∑" },
+  Y: { minWidth: 1.2, symbol: "∏" },
+};
+
+function fixBigOperator(piece: Piece): Piece {
+  const op = BIG_OPERATORS[piece.str.trim()];
+  if (!op || piece.width < piece.fontSize * op.minWidth) return piece;
+  // 이 기호들은 기준선 아래로 늘어진 모양이라 기준선이 글자 위쪽에 있다. 줄 높이에 맞게 내린다.
+  return { ...piece, str: op.symbol, y: piece.y - piece.fontSize * BIG_OPERATOR_DROP };
 }
 
 export function centerY(piece: Piece): number {
