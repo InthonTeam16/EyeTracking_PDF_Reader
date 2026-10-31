@@ -22,8 +22,15 @@ export function Hero({ actions }: HeroProps) {
         </p>
         <div className="flex flex-wrap items-center gap-3">{actions}</div>
       </div>
-      <div className="min-w-0 flex-[1_1_460px]">
-        <ReaderPreview />
+      {/* 나란히 놓일 때 왼쪽 글은 접힌 미리보기의 가운데에 맞춘다. 보이지 않는 접힌 미리보기로
+          높이를 잡고 실제 미리보기는 그 위에서 아래로만 늘어나, 설명이 펼쳐져도 왼쪽이 움직이지 않는다. */}
+      <div className="relative min-w-0 flex-[1_1_460px]">
+        <div aria-hidden="true" className="invisible hidden lg:block">
+          <ReaderPreview />
+        </div>
+        <div className="lg:absolute lg:inset-x-0 lg:top-0">
+          <ReaderPreview />
+        </div>
       </div>
     </section>
   );
