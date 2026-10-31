@@ -1,4 +1,6 @@
 import {
+  COLUMN_FULL_LINE_RATIO,
+  COLUMN_FULL_LINE_SHARE,
   COLUMN_MIN_CHARS,
   GUTTER_MIN_RATIO,
   GUTTER_MIN_ROWS,
@@ -101,7 +103,9 @@ function findGutters(rows: Piece[][], minGap: number): number[] {
   }
 
   // 양쪽 글이 짧은 경계(표의 칸, 목록의 탭)는 하나씩 빼면서 다시 검사한다
-  let gutters = candidates;
+  // 먼저 이웃 후보 없이 하나씩 검사해 표 안의 가짜 경계를 거른다.
+  // (가짜 경계와 함께 검사하면 진짜 단 경계가 반쪽짜리 단으로 잘려 먼저 탈락할 수 있다)
+  let gutters = candidates.filter((g) => isTextColumns(rows, g, undefined, undefined, minGap));
   for (;;) {
     const invalid = gutters.filter((g, i) => !isTextColumns(rows, g, gutters[i - 1], gutters[i + 1], minGap));
     if (invalid.length === 0) return gutters;
@@ -125,16 +129,29 @@ function isTextColumns(
   next: number | undefined,
   minGap: number,
 ): boolean {
-  const left: number[] = [];
-  const right: number[] = [];
+  const sides = [
+    { from: prev ?? -Infinity, to: g, chars: [] as number[], widths: [] as number[] },
+    { from: g, to: next ?? Infinity, chars: [] as number[], widths: [] as number[] },
+  ];
   for (const row of rows) {
     if (!isGapAt(row, g, minGap)) continue;
-    const chars = (from: number, to: number) =>
-      row.filter((p) => midX(p) > from && midX(p) < to).reduce((n, p) => n + p.str.trim().length, 0);
-    left.push(chars(prev ?? -Infinity, g));
-    right.push(chars(g, next ?? Infinity));
+    for (const side of sides) {
+      const ps = row.filter((p) => midX(p) > side.from && midX(p) < side.to);
+      if (ps.length === 0) continue;
+      side.chars.push(ps.reduce((n, p) => n + p.str.trim().length, 0));
+      side.widths.push(Math.max(...ps.map((p) => p.x + p.width)) - Math.min(...ps.map((p) => p.x)));
+    }
   }
-  return median(left) >= COLUMN_MIN_CHARS && median(right) >= COLUMN_MIN_CHARS;
+  // 본문 단은 줄의 상당수가 단 폭을 꽉 채운다. 표의 열은 칸마다 길이가 들쭉날쭉하다.
+  // (같은 페이지에 표가 섞여 있어도 본문 단이 걸러지지 않도록 중간값 대신 꽉 찬 줄의 비율을 본다)
+  const fullShare = (widths: number[]) =>
+    widths.filter((w) => w >= Math.max(...widths) * COLUMN_FULL_LINE_RATIO).length / widths.length;
+  return sides.every(
+    (side) =>
+      side.chars.length > 0 &&
+      median(side.chars) >= COLUMN_MIN_CHARS &&
+      fullShare(side.widths) >= COLUMN_FULL_LINE_SHARE,
+  );
 }
 
 // 행이 단 경계를 가로지르는지: 경계 위에 걸친 조각이 양쪽으로 충분히 뻗어 있거나,
