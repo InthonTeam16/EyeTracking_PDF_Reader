@@ -19,7 +19,12 @@ export type ReaderSettings = {
   explain: boolean;
   // 켜면 원본 PDF가 지금 읽는 블록의 페이지로 따라간다
   syncPdf: boolean;
+  // 원본 PDF에서 지금 읽는 문단을 형광펜처럼 칠한다
+  pdfHighlight: boolean;
+  pdfHighlightColor: HighlightColor;
 };
+
+export type HighlightColor = "yellow" | "green" | "pink" | "blue";
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   font: "sans",
@@ -29,6 +34,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   highlight: true,
   explain: true,
   syncPdf: false,
+  pdfHighlight: true,
+  pdfHighlightColor: "yellow",
 };
 
 // Tailwind가 클래스를 찾을 수 있게 전체 이름으로 적는다.
@@ -36,7 +43,12 @@ export const FONT_CLASSES: Record<ReaderSettings["font"], string> = {
   sans: "font-sans",
   serif: "font-serif",
 };
-export const FONT_SIZE_CLASSES = ["text-base", "text-lg", "text-xl", "text-2xl"];
+export const FONT_SIZE_CLASSES = [
+  "text-base",
+  "text-lg",
+  "text-xl",
+  "text-2xl",
+];
 export const LINE_HEIGHT_CLASSES: Record<ReaderSettings["lineHeight"], string> =
   {
     tight: "leading-relaxed",
@@ -54,6 +66,25 @@ export const BLUR_CLASSES = [
 
 // 기본값을 바꾸면 버전을 올려 예전에 저장된 설정 대신 새 기본값으로 시작하게 한다.
 const STORAGE_KEY = "reader-settings-v2";
+
+// 형광펜 색. 테마 토큰은 회색뿐이라 Tailwind 기본 팔레트를 쓴다 (docs/decisions.md).
+// 원본 PDF 위 박스: 연한 바탕 + 조금 진한 테두리. multiply로 겹쳐 글자가 흐려지지 않게 한다.
+export const HIGHLIGHT_BOX_CLASSES: Record<HighlightColor, string> = {
+  yellow: "border-yellow-400/70 bg-yellow-300/25",
+  green: "border-green-400/70 bg-green-300/25",
+  pink: "border-pink-400/70 bg-pink-300/25",
+  blue: "border-sky-400/70 bg-sky-300/25",
+};
+const HIGHLIGHT_SWATCHES: {
+  value: HighlightColor;
+  label: string;
+  className: string;
+}[] = [
+  { value: "yellow", label: "노랑", className: "bg-yellow-300" },
+  { value: "green", label: "초록", className: "bg-green-300" },
+  { value: "pink", label: "분홍", className: "bg-pink-300" },
+  { value: "blue", label: "파랑", className: "bg-sky-300" },
+];
 
 // 다시 열어도 같은 설정으로 읽도록 이 브라우저에만 저장한다.
 export function useReaderSettings() {
@@ -168,8 +199,12 @@ export function ReaderSettingsButton({
               max={BLUR_CLASSES.length - 1}
               disabled={!settings.highlight}
               onChange={(blur) => onChange({ blur })}
-              start={<span className="text-xs text-muted-foreground">약하게</span>}
-              end={<span className="text-xs text-muted-foreground">강하게</span>}
+              start={
+                <span className="text-xs text-muted-foreground">약하게</span>
+              }
+              end={
+                <span className="text-xs text-muted-foreground">강하게</span>
+              }
             />
           </Row>
 
@@ -189,6 +224,36 @@ export function ReaderSettingsButton({
               checked={settings.syncPdf}
               onChange={(syncPdf) => onChange({ syncPdf })}
             />
+            <Toggle
+              label="원본 PDF 하이라이트"
+              checked={settings.pdfHighlight}
+              onChange={(pdfHighlight) => onChange({ pdfHighlight })}
+            />
+            <div
+              role="radiogroup"
+              aria-label="하이라이트 색"
+              className={cn(
+                "flex items-center justify-end gap-2",
+                !settings.pdfHighlight && "pointer-events-none opacity-50",
+              )}
+            >
+              {HIGHLIGHT_SWATCHES.map((swatch) => (
+                <button
+                  key={swatch.value}
+                  type="button"
+                  role="radio"
+                  aria-label={swatch.label}
+                  aria-checked={settings.pdfHighlightColor === swatch.value}
+                  onClick={() => onChange({ pdfHighlightColor: swatch.value })}
+                  className={cn(
+                    "size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow",
+                    swatch.className,
+                    settings.pdfHighlightColor === swatch.value &&
+                      "ring-2 ring-ring",
+                  )}
+                />
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -224,8 +289,7 @@ function Segmented<T extends string>({
           onClick={() => onChange(option.value)}
           className={cn(
             "rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors",
-            value === option.value &&
-              "bg-background text-foreground shadow-sm",
+            value === option.value && "bg-background text-foreground shadow-sm",
           )}
         >
           {option.label}
