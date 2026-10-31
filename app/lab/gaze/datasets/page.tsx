@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, useMemo, useState } from "react";
 import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
+import { DEFAULT_SETTINGS } from "@/components/reader/reader-settings";
 import { ReaderView } from "@/components/reader/reader-view";
 import { Button } from "@/components/ui/button";
 import { BUILT_IN_SETS, DEFAULT_SET_NAMES } from "@/lib/gaze/datasets";
@@ -295,7 +296,11 @@ export default function GazeDatasetsPage() {
         </div>
       </div>
 
-      <ReaderView blocks={blocks} activeBlockId={gaze.activeBlockId} />
+      <ReaderView
+        blocks={blocks}
+        activeBlockId={gaze.activeBlockId}
+        settings={DEFAULT_SETTINGS}
+      />
       <GazeDebugDot point={gaze.point} />
     </main>
   );
