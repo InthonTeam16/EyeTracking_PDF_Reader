@@ -20,6 +20,9 @@
 # production
 /build
 
+# scripts/copy-face-mesh.mjs가 생성
+/public/mediapipe/
+
 # misc
 .DS_Store
 *.pem
