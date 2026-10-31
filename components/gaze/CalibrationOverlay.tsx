@@ -24,8 +24,10 @@ export function CalibrationOverlay({
       data-testid="calibration-overlay"
       className="fixed inset-0 z-40 bg-background"
     >
-      {/* 개발 모드 배지가 왼쪽 아래 점을 가려 이 화면에서만 숨긴다. */}
-      <style>{"nextjs-portal { display: none; }"}</style>
+      {/* 개발 모드 배지와 카메라 미리보기가 모서리 점을 가려 이 화면에서만 숨긴다. */}
+      <style>
+        {"nextjs-portal { display: none; } video { visibility: hidden; }"}
+      </style>
       {faceVisible && (
         <button
           type="button"
