@@ -20,7 +20,7 @@
 # production
 /build
 
-# scripts/copy-face-mesh.mjs가 생성
+# scripts/copy-tasks-vision.mjs가 생성
 /public/mediapipe/
 
 # misc
