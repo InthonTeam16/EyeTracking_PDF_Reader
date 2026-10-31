@@ -1,14 +1,22 @@
-import { Loader2Icon, SparklesIcon, XIcon } from "lucide-react";
+import { Loader2Icon, SparklesIcon, StarIcon, XIcon } from "lucide-react";
 
 import type { Explanation } from "@/components/reader/use-explanations";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type ExplainPopoverProps = {
   explanation: Explanation;
+  favorite: boolean;
+  onToggleFavorite: () => void;
   onClose: () => void;
 };
 
-export function ExplainPopover({ explanation, onClose }: ExplainPopoverProps) {
+export function ExplainPopover({
+  explanation,
+  favorite,
+  onToggleFavorite,
+  onClose,
+}: ExplainPopoverProps) {
   return (
     <aside
       role="dialog"
@@ -22,14 +30,29 @@ export function ExplainPopover({ explanation, onClose }: ExplainPopoverProps) {
           <SparklesIcon className="size-4 text-primary" />
           부가 설명
         </p>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="닫기"
-          onClick={onClose}
-        >
-          <XIcon />
-        </Button>
+        <div className="flex items-center gap-1">
+          {explanation.status === "done" && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="즐겨찾기"
+              aria-pressed={favorite}
+              onClick={onToggleFavorite}
+            >
+              <StarIcon
+                className={cn(favorite && "fill-yellow-400 text-yellow-400")}
+              />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="닫기"
+            onClick={onClose}
+          >
+            <XIcon />
+          </Button>
+        </div>
       </div>
 
       {explanation.status === "loading" && (

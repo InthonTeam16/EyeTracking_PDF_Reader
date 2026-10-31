@@ -20,8 +20,10 @@ import {
   type RefObject,
 } from "react";
 
+import { ExplainPopover } from "@/components/reader/explain-popover";
 import {
   resolveBlockPages,
+  useBlockHighlights,
   useHighlightBoxes,
   type HighlightTarget,
 } from "@/components/reader/pdf-highlight";
@@ -48,6 +50,10 @@ const THUMBNAIL_WIDTH = 80;
 // 기기 픽셀 비율이 1이어도 글자가 흐리지 않게 최소 2배로 그린다. 너무 크면 메모리를 많이 써서 3배로 막는다.
 const MIN_OUTPUT_SCALE = 2;
 const MAX_OUTPUT_SCALE = 3;
+// PDF 위에 띄우는 즐겨찾기 설명의 폭 (rem). 페이지 오른쪽 밖으로 나가지 않게 쓴다.
+const FAVORITE_POPOVER_REM = 18;
+
+export type PdfFavorite = HighlightTarget & { id: string; explanation: string };
 
 // 정리할 때 task.destroy()를 불러야 해서 문서가 아니라 로딩 작업을 돌려준다.
 async function openPdf(file: File): Promise<PDFDocumentLoadingTask> {
@@ -138,6 +144,9 @@ type PdfPagesProps = {
   // 문서를 열면 블록마다 실제 원본 페이지를 찾아 알려준다.
   blocks?: Block[];
   onResolvePages?: (pages: Map<string, number>) => void;
+  // 즐겨찾기한 부가 설명. 페이지에 표시를 남기고, 누르면 설명을 다시 보여준다.
+  favorites?: PdfFavorite[];
+  onToggleFavorite?: (id: string) => void;
 };
 
 export function PdfPages({
@@ -148,6 +157,8 @@ export function PdfPages({
   inverted = false,
   blocks,
   onResolvePages,
+  favorites = [],
+  onToggleFavorite,
 }: PdfPagesProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [failed, setFailed] = useState(false);
@@ -162,7 +173,17 @@ export function PdfPages({
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const highlighted = useHighlightBoxes(doc, highlight);
+  const favoriteHighlights = useBlockHighlights(doc, favorites);
+  const [openFavoriteId, setOpenFavoriteId] = useState<string | null>(null);
   const { panning, handlers: panHandlers } = useDragToPan(scrollRef);
+  const openFavorite = favorites.find(({ id }) => id === openFavoriteId);
+  // 설명은 블록의 마지막 줄 아래에 띄운다. 읽던 문장을 가리지 않게 하기 위해서다.
+  const openFavoritePages = openFavorite
+    ? favoriteHighlights.get(openFavorite.id)
+    : undefined;
+  const openFavoritePage = openFavoritePages?.[openFavoritePages.length - 1];
+  const openFavoriteBox =
+    openFavoritePage?.boxes[openFavoritePage.boxes.length - 1];
 
   useEffect(() => {
     if (!doc || !blocks || !onResolvePages) return;
@@ -378,6 +399,39 @@ export function PdfPages({
                     height={baseSize.height * scale}
                     inverted={inverted}
                   />
+                  {favorites.flatMap((favorite) =>
+                    (favoriteHighlights.get(favorite.id) ?? [])
+                      .filter((pageBoxes) => pageBoxes.page === index + 1)
+                      .flatMap((pageBoxes) => pageBoxes.boxes)
+                      .map((box, boxIndex) => (
+                        <button
+                          key={`${favorite.id}-${boxIndex}`}
+                          type="button"
+                          aria-label="즐겨찾기한 부가 설명 보기"
+                          // 페이지를 끌어 옮기는 동작이 포인터를 가져가면 클릭이 오지 않는다.
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={() =>
+                            setOpenFavoriteId((current) =>
+                              current === favorite.id ? null : favorite.id,
+                            )
+                          }
+                          // 읽는 중 형광펜은 사용자가 고른 색이라, 고를 수 없는 보라색에 밑줄을 더해 구별한다.
+                          className={cn(
+                            "absolute cursor-pointer rounded-[2px] border-b-2",
+                            inverted
+                              ? "border-violet-300 bg-violet-300/30"
+                              : "border-violet-600 bg-violet-300 mix-blend-multiply",
+                          )}
+                          // 페이지 비율 위치라 Tailwind 클래스로 정할 수 없다.
+                          style={{
+                            left: `${box.left * 100}%`,
+                            top: `${box.top * 100}%`,
+                            width: `${box.width * 100}%`,
+                            height: `${box.height * 100}%`,
+                          }}
+                        />
+                      )),
+                  )}
                   {highlight?.className &&
                     highlighted
                       ?.find((h) => h.page === index + 1)
@@ -403,6 +457,32 @@ export function PdfPages({
                           }}
                         />
                       ))}
+                  {openFavorite &&
+                    openFavoriteBox &&
+                    openFavoritePage?.page === index + 1 && (
+                      <div
+                        onPointerDown={(event) => event.stopPropagation()}
+                        className="absolute z-30 cursor-auto select-text"
+                        // 페이지 비율 위치라 Tailwind 클래스로 정할 수 없다.
+                        style={{
+                          left: `min(${openFavoriteBox.left * 100}%, calc(100% - ${FAVORITE_POPOVER_REM}rem))`,
+                          top: `${(openFavoriteBox.top + openFavoriteBox.height) * 100}%`,
+                          width: `${FAVORITE_POPOVER_REM}rem`,
+                        }}
+                      >
+                        <ExplainPopover
+                          explanation={{
+                            status: "done",
+                            text: openFavorite.explanation,
+                          }}
+                          favorite
+                          onToggleFavorite={() =>
+                            onToggleFavorite?.(openFavorite.id)
+                          }
+                          onClose={() => setOpenFavoriteId(null)}
+                        />
+                      </div>
+                    )}
                 </div>
               ))}
             </div>
