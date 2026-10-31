@@ -56,52 +56,62 @@ function clampToViewport(point: { x: number; y: number }) {
 // GazeState에 진행 상태를 더해 반환한다. 리더는 status를 쓰지 않아도 된다.
 // 저장된 데이터가 있으면 바로 시선을 내고 클릭은 치우침 보정에만 쓴다.
 // collect는 저장된 데이터 없이 data-gaze-target 요소의 클릭만 샘플로 모은다.
+// samples를 주면 저장된 데이터 대신 쓰고, 바뀌면 카메라를 끄지 않고 다시 학습한다.
+// data-gaze-ignore 안의 클릭은 학습과 보정에 쓰지 않는다.
 export function useGaze(
   events: GazeEvents,
-  { collect = false }: { collect?: boolean } = {},
+  {
+    collect = false,
+    samples,
+  }: { collect?: boolean; samples?: GazeSample[] } = {},
 ): GazeState & { status: GazeStatus; getSamples: () => GazeSample[] } {
+  const baseSamples = collect ? null : (samples ?? PRETRAINED_SAMPLES);
   const usesPretrained =
-    !collect && PRETRAINED_SAMPLES.length >= GAZE_MIN_TRAINING_CLICKS;
+    baseSamples !== null && baseSamples.length >= GAZE_MIN_TRAINING_CLICKS;
   const [gaze, setGaze] = useState<FaceGaze>(NO_GAZE);
-  const [calibrated, setCalibrated] = useState(usesPretrained);
+  const [trained, setTrained] = useState(false);
   const [status, setStatus] = useState<GazeStatus>({ phase: "loading" });
   const samplesRef = useRef<GazeSample[]>([]);
   const getSamples = useCallback(() => samplesRef.current, []);
+  const modelRef = useRef<GazeModel | null>(null);
+  const usesPretrainedRef = useRef(usesPretrained);
+  const offsetRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    usesPretrainedRef.current = usesPretrained;
+    modelRef.current =
+      baseSamples && usesPretrained
+        ? fitGazeModel(baseSamples, GAZE_RIDGE_LAMBDA)
+        : null;
+    offsetRef.current = { x: 0, y: 0 };
+    samplesRef.current = [];
+  }, [baseSamples, usesPretrained]);
 
   useEffect(() => {
     let cancelled = false;
     let animationFrame = 0;
     let stream: MediaStream | null = null;
     let video: HTMLVideoElement | null = null;
-    const pretrainedModel = usesPretrained
-      ? fitGazeModel(PRETRAINED_SAMPLES, GAZE_RIDGE_LAMBDA)
-      : null;
-    let model: GazeModel | null = pretrainedModel;
-    let offset = { x: 0, y: 0 };
     let recentFeatures: number[][] = [];
     let faceVisible = false;
     const smoother = createPointSmoother(GAZE_SMOOTHING_SAMPLES);
-    samplesRef.current = [];
 
     const reportTracking = () => {
       setStatus({
         phase: "tracking",
         faceVisible,
         clicks: samplesRef.current.length,
-        usesPretrained,
+        usesPretrained: usesPretrainedRef.current,
       });
     };
 
     // 클릭하는 순간 그 지점을 보고 있다고 가정하고 학습한다.
     const handleClick = (event: MouseEvent) => {
       if (recentFeatures.length === 0) return;
-      if (
-        collect &&
-        !(event.target as Element).closest("[data-gaze-target]")
-      ) {
-        return;
-      }
-      const samples = [
+      const target = event.target as Element;
+      if (target.closest("[data-gaze-ignore]")) return;
+      if (collect && !target.closest("[data-gaze-target]")) return;
+      const nextSamples = [
         ...samplesRef.current,
         {
           features: averageFeatures(recentFeatures),
@@ -111,20 +121,20 @@ export function useGaze(
         },
       ];
       samplesRef.current = collect
-        ? samples
-        : samples.slice(-GAZE_MAX_TRAINING_CLICKS);
+        ? nextSamples
+        : nextSamples.slice(-GAZE_MAX_TRAINING_CLICKS);
       reportTracking();
 
-      if (pretrainedModel) {
-        offset = computeOffset(
-          pretrainedModel,
+      if (usesPretrainedRef.current && modelRef.current) {
+        offsetRef.current = computeOffset(
+          modelRef.current,
           samplesRef.current.slice(-GAZE_CORRECTION_CLICKS),
         );
         return;
       }
       if (samplesRef.current.length < GAZE_MIN_TRAINING_CLICKS) return;
-      model = fitGazeModel(samplesRef.current, GAZE_RIDGE_LAMBDA);
-      setCalibrated(true);
+      modelRef.current = fitGazeModel(samplesRef.current, GAZE_RIDGE_LAMBDA);
+      setTrained(true);
     };
 
     async function start() {
@@ -192,9 +202,10 @@ export function useGaze(
         recentFeatures = [...recentFeatures, features].slice(
           -GAZE_FEATURE_AVERAGE_FRAMES,
         );
-        if (!model) return;
+        if (!modelRef.current) return;
 
-        const predicted = model(features);
+        const predicted = modelRef.current(features);
+        const offset = offsetRef.current;
         const point = clampToViewport(
           smoother.add({
             x: (predicted.x + offset.x) * window.innerWidth,
@@ -220,10 +231,15 @@ export function useGaze(
       stream?.getTracks().forEach((track) => track.stop());
       video?.remove();
     };
-  }, [collect, usesPretrained]);
+  }, [collect]);
 
   useDwell(gaze.activeBlockId, events.onDwell);
 
   // TODO(demo): 찡그림 감지를 추가해 onSquint를 호출한다.
-  return { ...gaze, calibrated, status, getSamples };
+  return {
+    ...gaze,
+    calibrated: usesPretrained || trained,
+    status,
+    getSamples,
+  };
 }

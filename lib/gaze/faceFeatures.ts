@@ -6,6 +6,10 @@ const EYES = [
 ];
 const NOSE_TIP = 1;
 
+// extractGazeFeatures가 반환하는 배열의 구성
+export const IRIS_FEATURE_INDICES = [0, 1, 2, 3];
+export const HEAD_FEATURE_INDICES = [4, 5, 6, 7, 8, 9];
+
 function center(points: Landmark[]): Landmark {
   return {
     x: points.reduce((sum, point) => sum + point.x, 0) / points.length,

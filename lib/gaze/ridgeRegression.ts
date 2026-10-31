@@ -174,3 +174,67 @@ export function cleanDataset(
     },
   };
 }
+
+export type AxisError = { x: number; y: number };
+
+// 여러 세트를 합칠 때 같은 샘플이 이중으로 계산되지 않게 한다.
+export function dedupeSamples(samples: GazeSample[]): GazeSample[] {
+  const seen = new Set<string>();
+  return samples.filter((sample) => {
+    const key = JSON.stringify(sample);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function pickFeatures(
+  samples: GazeSample[],
+  indices: number[],
+): GazeSample[] {
+  return samples.map((sample) => ({
+    ...sample,
+    features: indices.map((index) => sample.features[index]),
+  }));
+}
+
+export function evaluateModel(
+  model: GazeModel,
+  samples: GazeSample[],
+): AxisError {
+  const errors = samples.map((sample) => {
+    const predicted = model(sample.features);
+    return {
+      x: Math.abs(predicted.x - sample.x),
+      y: Math.abs(predicted.y - sample.y),
+    };
+  });
+  return {
+    x: mean(errors.map((error) => error.x)),
+    y: mean(errors.map((error) => error.y)),
+  };
+}
+
+// 입력값 없이 항상 평균 좌표를 찍을 때의 오차. 이보다 나아야 학습된 것이다.
+export function baselineError(samples: GazeSample[]): AxisError {
+  const center = {
+    x: mean(samples.map((sample) => sample.x)),
+    y: mean(samples.map((sample) => sample.y)),
+  };
+  return evaluateModel(() => center, samples);
+}
+
+// 연속 구간을 통째로 빼고 학습해, 그 구간의 자세를 처음 볼 때의 오차를 잰다.
+export function blockHoldoutError(
+  samples: GazeSample[],
+  lambda: number,
+  folds: number,
+): AxisError {
+  const errors = measureHoldoutErrors(samples, lambda, folds, (index) =>
+    Math.floor((index * folds) / samples.length),
+  );
+  return {
+    x: mean(errors.map((error) => Math.abs(error.x))),
+    y: mean(errors.map((error) => Math.abs(error.y))),
+  };
+}
