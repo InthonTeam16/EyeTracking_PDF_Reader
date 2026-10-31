@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Eye } from "lucide-react";
+import { NungilLogo } from "@/components/landing/NungilLogo";
 
 import { ThemeToggle } from "@/components/reader/theme";
 
@@ -11,7 +11,7 @@ export function LandingHeader() {
           href="/"
           className="flex items-center gap-2.5 text-[17px] font-bold text-foreground"
         >
-          <Eye className="size-6" strokeWidth={1.8} aria-hidden="true" />
+          <NungilLogo className="h-7 w-auto" />
           눈길
         </Link>
         <div className="ml-auto">
