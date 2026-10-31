@@ -14,6 +14,7 @@ export const GAZE_CORRECTION_CLICKS = 5;
 export const GAZE_DATASET_FOLDS = 5;
 export const GAZE_OUTLIER_SIGMA = 2.5;
 export const GAZE_MIN_DATASET_SAMPLES = 20;
+export const GAZE_HEAD_FOLLOW_CORRELATION = 0.6;
 
 export const TASKS_VISION_WASM_PATH = "/mediapipe/tasks-vision";
 export const FACE_LANDMARKER_MODEL_PATH = "/models/face_landmarker.task";

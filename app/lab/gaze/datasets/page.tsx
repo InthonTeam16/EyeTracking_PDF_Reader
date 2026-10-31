@@ -5,7 +5,6 @@ import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
 import { DEFAULT_SETTINGS } from "@/components/reader/reader-settings";
 import { ReaderView } from "@/components/reader/reader-view";
 import { Button } from "@/components/ui/button";
-import { BUILT_IN_SETS, DEFAULT_SET_NAMES } from "@/lib/gaze/datasets";
 import {
   computeDatasetStats,
   crossSetError,
@@ -13,6 +12,7 @@ import {
   judgeDataset,
 } from "@/lib/gaze/datasetStats";
 import { exportSamples } from "@/lib/gaze/exportSamples";
+import { isRawGazeSession, rawSessionToSamples } from "@/lib/gaze/rawSamples";
 import {
   type AxisError,
   dedupeSamples,
@@ -30,6 +30,7 @@ const blocks: Block[] = mockBlocks;
 
 function parseSampleFile(text: string): GazeSample[] {
   const data: unknown = JSON.parse(text);
+  if (isRawGazeSession(data)) return rawSessionToSamples(data);
   const valid =
     Array.isArray(data) &&
     data.every(
@@ -85,8 +86,8 @@ function StatsCells({
 
 // TODO(demo): 학습 데이터 비교용 임시 페이지. 쓸 데이터를 정하면 지운다.
 export default function GazeDatasetsPage() {
-  const [sets, setSets] = useState<SampleSet[]>(BUILT_IN_SETS);
-  const [selected, setSelected] = useState<string[]>(DEFAULT_SET_NAMES);
+  const [sets, setSets] = useState<SampleSet[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);

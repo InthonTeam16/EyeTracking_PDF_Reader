@@ -20,6 +20,8 @@ async function createFaceLandmarker(): Promise<FaceLandmarker> {
     },
     runningMode: "VIDEO",
     numFaces: 1,
+    outputFaceBlendshapes: true,
+    outputFacialTransformationMatrixes: true,
   });
 }
 
