@@ -26,7 +26,7 @@ export const GAZE_YAW_X_PER_DEGREE = -0.02;
 export const GAZE_CENTER_READING = {
   nextZone: 0.8,
   previousZone: 0.2,
-  glanceMs: 700,
+  glanceMs: 1200,
   repeatMs: 2000,
 };
 
