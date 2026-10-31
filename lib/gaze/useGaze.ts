@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  GAZE_CALIBRATION_POINTS,
   GAZE_CORRECTION_CLICKS,
   GAZE_FEATURE_AVERAGE_FRAMES,
   GAZE_MAX_TRAINING_CLICKS,
@@ -9,18 +10,21 @@ import {
   GAZE_PITCH_Y_PER_DEGREE,
   GAZE_RIDGE_LAMBDA,
   GAZE_SMOOTHING_SAMPLES,
+  GAZE_YAW_X_PER_DEGREE,
   MIN_EYE_OPEN_RATIO,
 } from "@/lib/gaze/config";
 import {
   extractGazeFeatures,
   PITCH_FEATURE_INDEX,
+  YAW_FEATURE_INDEX,
 } from "@/lib/gaze/faceFeatures";
 import { startFaceTracking } from "@/lib/gaze/faceTracking";
 import { findBlockId } from "@/lib/gaze/findBlockId";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
 import {
   computeOffset,
-  fitGazeModelWithFixedY,
+  type FixedInput,
+  fitGazeModelWithFixedInputs,
   type GazeModel,
   type GazeSample,
 } from "@/lib/gaze/ridgeRegression";
@@ -43,12 +47,23 @@ export type GazeStatus =
     };
 
 // 고개를 들고 같은 점을 본 데이터로는 상하 각도의 영향이 학습되지 않아 값을 정해 둔다.
-function fitModel(samples: GazeSample[]): GazeModel {
-  return fitGazeModelWithFixedY(
+const FIXED_PITCH: FixedInput = {
+  index: PITCH_FEATURE_INDEX,
+  axis: "y",
+  perUnit: GAZE_PITCH_Y_PER_DEGREE,
+};
+// 개인 보정은 한 자세로 하므로 좌우 각도의 영향도 배울 수 없다.
+const FIXED_YAW: FixedInput = {
+  index: YAW_FEATURE_INDEX,
+  axis: "x",
+  perUnit: GAZE_YAW_X_PER_DEGREE,
+};
+
+function fitModel(samples: GazeSample[], guided: boolean): GazeModel {
+  return fitGazeModelWithFixedInputs(
     samples,
     GAZE_RIDGE_LAMBDA,
-    PITCH_FEATURE_INDEX,
-    GAZE_PITCH_Y_PER_DEGREE,
+    guided ? [FIXED_PITCH, FIXED_YAW] : [FIXED_PITCH],
   );
 }
 
@@ -71,10 +86,11 @@ function clampToViewport(point: { x: number; y: number }) {
 // 저장된 데이터가 있으면 바로 시선을 내고 클릭은 치우침 보정에만 쓴다.
 // samples를 주면 저장된 데이터 대신 쓰고, 바뀌면 카메라를 끄지 않고 다시 학습한다.
 // data-gaze-ignore 안의 클릭은 학습과 보정에 쓰지 않는다.
+// guided면 data-gaze-target 점의 클릭으로 사람마다 보정하고, 그 뒤 클릭은 치우침 보정에만 쓴다.
 export function useGaze(
   events: GazeEvents,
-  { samples }: { samples?: GazeSample[] } = {},
-): GazeState & { status: GazeStatus } {
+  { samples, guided = false }: { samples?: GazeSample[]; guided?: boolean } = {},
+): GazeState & { status: GazeStatus; recalibrate: () => void } {
   const baseSamples = samples ?? PRETRAINED_SAMPLES;
   const usesPretrained = baseSamples.length >= GAZE_MIN_TRAINING_CLICKS;
   const [gaze, setGaze] = useState<FaceGaze>(NO_GAZE);
@@ -87,10 +103,21 @@ export function useGaze(
 
   useEffect(() => {
     usesPretrainedRef.current = usesPretrained;
-    modelRef.current = usesPretrained ? fitModel(baseSamples) : null;
+    modelRef.current = usesPretrained ? fitModel(baseSamples, guided) : null;
     offsetRef.current = { x: 0, y: 0 };
     samplesRef.current = [];
-  }, [baseSamples, usesPretrained]);
+  }, [baseSamples, usesPretrained, guided]);
+
+  const recalibrate = useCallback(() => {
+    samplesRef.current = [];
+    modelRef.current = null;
+    offsetRef.current = { x: 0, y: 0 };
+    setTrained(false);
+    setGaze(NO_GAZE);
+    setStatus((current) =>
+      current.phase === "tracking" ? { ...current, clicks: 0 } : current,
+    );
+  }, []);
 
   useEffect(() => {
     let recentFeatures: number[][] = [];
@@ -111,6 +138,13 @@ export function useGaze(
       if (recentFeatures.length === 0) return;
       const target = event.target as Element;
       if (target.closest("[data-gaze-ignore]")) return;
+      const calibrating =
+        guided &&
+        !usesPretrainedRef.current &&
+        samplesRef.current.length < GAZE_CALIBRATION_POINTS.length;
+      if (calibrating && !target.closest("[data-gaze-target]")) return;
+      const wasCalibrated =
+        guided && !usesPretrainedRef.current && !calibrating;
       samplesRef.current = [
         ...samplesRef.current,
         {
@@ -129,8 +163,20 @@ export function useGaze(
         );
         return;
       }
-      if (samplesRef.current.length < GAZE_MIN_TRAINING_CLICKS) return;
-      modelRef.current = fitModel(samplesRef.current);
+      if (wasCalibrated && modelRef.current) {
+        offsetRef.current = computeOffset(
+          modelRef.current,
+          samplesRef.current
+            .slice(GAZE_CALIBRATION_POINTS.length)
+            .slice(-GAZE_CORRECTION_CLICKS),
+        );
+        return;
+      }
+      const minClicks = guided
+        ? GAZE_CALIBRATION_POINTS.length
+        : GAZE_MIN_TRAINING_CLICKS;
+      if (samplesRef.current.length < minClicks) return;
+      modelRef.current = fitModel(samplesRef.current, guided);
       setTrained(true);
     };
 
@@ -193,7 +239,7 @@ export function useGaze(
       stop();
       document.removeEventListener("click", handleClick, true);
     };
-  }, []);
+  }, [guided]);
 
   useDwell(gaze.activeBlockId, events.onDwell);
 
@@ -202,5 +248,6 @@ export function useGaze(
     ...gaze,
     calibrated: usesPretrained || trained,
     status,
+    recalibrate,
   };
 }

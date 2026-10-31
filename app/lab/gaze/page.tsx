@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CalibrationOverlay } from "@/components/gaze/CalibrationOverlay";
 import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,11 +88,30 @@ function describeStatus(status: GazeStatus): string {
 
 function WebcamGazeLab() {
   const [lastDwell, setLastDwell] = useState<string | null>(null);
-  const gaze = useGaze({
-    onDwell: (blockId, ms) => setLastDwell(`${blockId} (${ms}ms)`),
-  });
+  const gaze = useGaze(
+    {
+      onDwell: (blockId, ms) => setLastDwell(`${blockId} (${ms}ms)`),
+    },
+    { guided: true },
+  );
+  const { status } = gaze;
   return (
     <>
+      {status.phase === "tracking" && !gaze.calibrated && (
+        <CalibrationOverlay
+          clicks={status.clicks}
+          faceVisible={status.faceVisible}
+        />
+      )}
+      <Button
+        variant="outline"
+        data-gaze-ignore
+        data-testid="recalibrate"
+        className="self-start"
+        onClick={gaze.recalibrate}
+      >
+        다시 보정
+      </Button>
       <p
         data-testid="gaze-status"
         className={cn(
@@ -136,7 +156,7 @@ export default function GazeLabPage() {
       </div>
       {mode === "webcam" && (
         <p className="text-sm text-muted-foreground">
-          화면 곳곳을 바라보면서 클릭하면 학습합니다.
+          보정이 끝난 뒤 클릭하면 그 위치로 치우침을 바로잡습니다.
         </p>
       )}
       <Lab />
