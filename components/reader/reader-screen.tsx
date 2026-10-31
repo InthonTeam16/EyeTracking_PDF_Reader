@@ -67,8 +67,15 @@ export function ReaderScreen() {
 // 블록이 준비된 뒤에만 시선 추적과 설명 팝업을 붙인다.
 function ReaderContent({ doc }: { doc: ReaderDocument }) {
   const { blocks, pdf: file, kind, title } = doc;
-  const { openBlockId, explanation, open, close, closeUnless } =
-    useExplanations(blocks);
+  const {
+    openBlockId,
+    explanation,
+    open,
+    close,
+    closeUnless,
+    favorites,
+    toggleFavorite,
+  } = useExplanations(blocks);
   // 블록마다 예상 읽기 시간보다 오래 머물 때 설명을 띄운다 (use-reading-dwell.ts).
   const dwellMsFor = useCallback(
     (blockId: string) =>
@@ -107,6 +114,13 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
         : blocks,
     [blocks, resolvedPages],
   );
+
+  const pdfFavorites = favorites.flatMap(({ blockId, text }) => {
+    const block = pagedBlocks.find(({ id }) => id === blockId);
+    return block
+      ? [{ id: blockId, page: block.page, text: block.text, explanation: text }]
+      : [];
+  });
 
   // 부가 설명을 끄면 오래 응시하거나 찡그려도 팝업을 띄우지 않는다.
   const events: GazeEvents = settings.explain
@@ -202,6 +216,12 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                           content: (
                             <ExplainPopover
                               explanation={explanation}
+                              favorite={favorites.some(
+                                ({ blockId }) => blockId === openBlockId,
+                              )}
+                              onToggleFavorite={() =>
+                                toggleFavorite(openBlockId)
+                              }
                               onClose={close}
                             />
                           ),
@@ -244,6 +264,8 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                 inverted={dark && settings.darkPdf}
                 blocks={blocks}
                 onResolvePages={setResolvedPages}
+                favorites={pdfFavorites}
+                onToggleFavorite={toggleFavorite}
                 highlight={
                   activeBlock
                     ? {

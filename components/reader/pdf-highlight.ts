@@ -333,6 +333,42 @@ export async function resolveBlockPages(
   return pages;
 }
 
+// 여러 블록의 위치를 찾아 id별로 돌려준다 (즐겨찾기 표시). 못 찾은 블록은 빈 배열이다.
+export function useBlockHighlights(
+  doc: PDFDocumentProxy | null,
+  targets: (HighlightTarget & { id: string })[],
+): Map<string, PageHighlight[]> {
+  const key = targets
+    .map(({ id, page, text }) => `${id}\n${page}\n${text}`)
+    .join("\n\n");
+  const [found, setFound] = useState(new Map<string, PageHighlight[]>());
+  const cacheRef = useRef(new Map<string, PageHighlight[]>());
+
+  useEffect(() => {
+    if (!doc) return;
+    let cancelled = false;
+    Promise.all(
+      targets.map(async (target) => {
+        const cacheKey = `${target.page}\n${target.text}`;
+        const pages =
+          cacheRef.current.get(cacheKey) ??
+          (await locate(doc, target).catch((): PageHighlight[] => []));
+        cacheRef.current.set(cacheKey, pages);
+        return [target.id, pages] as const;
+      }),
+    ).then((entries) => {
+      if (!cancelled) setFound(new Map(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // targets는 key로 비교한다 (렌더마다 새 배열이라서).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, key]);
+
+  return found;
+}
+
 // 지금 읽는 블록이 원본 PDF 페이지의 어디에 있는지 찾는다.
 // Block에는 페이지 번호만 있어서, 페이지 글자에서 블록 문장의 앞뒤를 찾아 영역을 정한다.
 // 못 찾으면 빈 배열이고 하이라이트만 안 보인다. 찾는 중이면 null.
