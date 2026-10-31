@@ -32,7 +32,8 @@ function normalize(token: string): string {
 
 // 줄 맨 앞·맨 뒤 어절은 줄바꿈에 잘렸을 수 있어 빼고 모은다.
 // flows: 단(흐름)별 줄 목록. whole은 짧은 줄(제목, 표의 칸, 문단 마지막 줄)이라 양 끝 어절도 온전한 경우
-export function buildVocab(flows: { text: string; whole: boolean }[][]): Vocab {
+// raggedRight: 줄 오른쪽 끝이 들쭉날쭉한 문서 (어절 단위 줄바꿈이 확실하다)
+export function buildVocab(flows: { text: string; whole: boolean }[][], raggedRight = false): Vocab {
   const words = new Set<string>();
   for (const { text, whole } of flows.flat()) {
     const tokens = text.split(" ");
@@ -42,7 +43,7 @@ export function buildVocab(flows: { text: string; whole: boolean }[][]): Vocab {
     }
   }
 
-  return { words, midWordBreaks: detectMidWordBreaks(flows, words) };
+  return { words, midWordBreaks: !raggedRight && detectMidWordBreaks(flows, words) };
 }
 
 // 단어 중간에서 줄을 바꾼 문서인지 두 가지 증거로 판단한다.

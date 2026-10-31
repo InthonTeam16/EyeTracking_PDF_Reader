@@ -60,6 +60,11 @@ export const MIN_WRAP_EVIDENCE = 10;
 // 줄 끝 조사·어미 비율이 "글자 단위 예상값 → 어절 단위 예상값" 사이 이 지점을 넘으면 어절 단위 줄바꿈으로 본다
 export const WORD_WRAP_THRESHOLD = 0.6;
 
+// 문장 중간 줄 중 오른쪽 끝이 글자 크기의 이 배수보다 덜 찬 줄이 이 비율 이상이면 어절 단위 줄바꿈 문서로 본다
+export const RAGGED_RIGHT_RATIO = 1;
+export const RAGGED_LINE_SHARE = 0.3;
+export const RAGGED_MIN_LINES = 5;
+
 // 이 비율 이상의 페이지 위·아래에 반복되는 줄은 머리말·꼬리말로 보고 지운다
 export const RUNNING_LINE_PAGE_RATIO = 0.5;
 

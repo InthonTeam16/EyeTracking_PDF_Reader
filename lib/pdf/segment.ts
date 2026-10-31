@@ -5,6 +5,9 @@ import {
   MAX_BLOCK_CHARS,
   MIN_BLOCK_CHARS,
   PARAGRAPH_GAP_RATIO,
+  RAGGED_LINE_SHARE,
+  RAGGED_MIN_LINES,
+  RAGGED_RIGHT_RATIO,
   RUNNING_LINE_PAGE_RATIO,
   SHORT_LINE_RATIO,
   VERY_SHORT_LINE_RATIO,
@@ -12,7 +15,7 @@ import {
 import type { Box, PageContent, Piece } from "./extract";
 import { isCaption, removeNonBody, type FlowLine } from "./filter";
 import { layoutPage, median } from "./layout";
-import { piecesToLines } from "./lines";
+import { piecesToLines, type Line } from "./lines";
 import { buildVocab, joinLines, splitToFit, type Vocab } from "./text";
 
 // boundary: 단·페이지가 시작되거나 표·그림이 지워진 자리에서 시작한 문단 (앞 문단과 이어질 수 있다)
@@ -40,6 +43,7 @@ export function pagesToBlocks(pages: PageContent[]): Block[] {
       const maxWidth = Math.max(...lines.map((l) => l.width));
       return lines.map((l) => ({ text: l.text, whole: l.width < maxWidth * VERY_SHORT_LINE_RATIO }));
     }),
+    isRaggedRight(linesByPage.flat()),
   );
   const flowsByPage = removeRunningLines(
     linesByPage.map((flows) => flows.map((lines) => removeNonBody(lines, bodyFont))),
@@ -64,6 +68,23 @@ export function pagesToBlocks(pages: PageContent[]): Block[] {
     countByPage.set(p.page, index + 1);
     return { id: `p${p.page}-b${index}`, text: p.text, page: p.page, order };
   });
+}
+
+// 왼쪽 정렬 문서에서 문장 중간 줄의 오른쪽 끝이 한 글자 이상 들쭉날쭉하면 어절 단위로 줄을 바꾼 문서다.
+// (단어 중간에서 줄을 바꾸면 줄이 거의 꽉 찬다. 양쪽 정렬 문서는 여기서 판단하지 않는다.)
+function isRaggedRight(flows: Line[][]): boolean {
+  let total = 0;
+  let ragged = 0;
+  for (const lines of flows) {
+    const maxWidth = Math.max(...lines.map((l) => l.width));
+    const right = Math.max(...lines.map((l) => l.x + l.width));
+    for (const line of lines.slice(0, -1)) {
+      if (SENTENCE_END.test(line.text) || line.width < maxWidth * VERY_SHORT_LINE_RATIO) continue;
+      total++;
+      if (right - (line.x + line.width) > line.fontSize * RAGGED_RIGHT_RATIO) ragged++;
+    }
+  }
+  return total >= RAGGED_MIN_LINES && ragged / total >= RAGGED_LINE_SHARE;
 }
 
 // 글자 수 기준으로 가장 많이 쓰인 글자 크기
