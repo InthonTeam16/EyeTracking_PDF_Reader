@@ -1,0 +1,237 @@
+import type { Block } from "@/types";
+import {
+  FONT_SIZE_CHANGE_RATIO,
+  INDENT_RATIO,
+  MAX_BLOCK_CHARS,
+  MIN_BLOCK_CHARS,
+  PARAGRAPH_GAP_RATIO,
+  RUNNING_LINE_PAGE_RATIO,
+  SHORT_LINE_RATIO,
+  VERY_SHORT_LINE_RATIO,
+} from "./config";
+import type { Box, PageContent, Piece } from "./extract";
+import { isCaption, removeNonBody, type FlowLine } from "./filter";
+import { layoutPage, median } from "./layout";
+import { piecesToLines } from "./lines";
+import { buildVocab, joinLines, splitToFit, type Vocab } from "./text";
+
+// boundary: 단·페이지가 시작되거나 표·그림이 지워진 자리에서 시작한 문단 (앞 문단과 이어질 수 있다)
+type Paragraph = {
+  text: string;
+  page: number;
+  fontSize: number;
+  endFontSize: number;
+  indented: boolean;
+  boundary: boolean;
+};
+
+const SENTENCE_END = /[.!?。…"'”’)\]]$/;
+// 경계에서 이을지 판단할 때는 마침표 없이 끝난 한국어 문장(~다, ~요)도 끝난 것으로 본다
+const PARAGRAPH_END = /[.!?。…"'”’)\]다요]$/;
+const PAGE_NUMBER = /^[-–—\s]*\d+(\s*\/\s*\d+)?[-–—\s]*$/;
+
+// pages[i]는 i+1페이지의 내용
+export function pagesToBlocks(pages: PageContent[]): Block[] {
+  const bodyFont = dominantFontSize(pages.flatMap((p) => p.pieces));
+  const linesByPage = pages.map((page) => layoutPage(page.pieces, bodyFont).map(piecesToLines));
+  // 표·캡션의 단어도 띄어쓰기 판단에 도움이 되므로 지우기 전에 모은다
+  const vocab = buildVocab(
+    linesByPage.flat().map((lines) => {
+      const maxWidth = Math.max(...lines.map((l) => l.width));
+      return lines.map((l) => ({ text: l.text, whole: l.width < maxWidth * VERY_SHORT_LINE_RATIO }));
+    }),
+  );
+  const flowsByPage = removeRunningLines(
+    linesByPage.map((flows) => flows.map((lines) => removeNonBody(lines, bodyFont))),
+  );
+
+  const paragraphs = flowsByPage.flatMap((flows, i) => {
+    const gaps = flows.flatMap((lines) => lines.slice(1).map((line, k) => lines[k].y - line.y));
+    const medianGap = median(gaps.filter((g) => g > 0));
+    return flows.flatMap((lines) =>
+      splitParagraphs(lines, medianGap, bodyFont, pages[i].figures, vocab).map((p) => ({ ...p, page: i + 1 })),
+    );
+  });
+
+  const body = joinAtBoundaries(removeCaptions(paragraphs), bodyFont, vocab);
+  const sized = mergeShort(body).flatMap((p) =>
+    splitToFit(p.text, MAX_BLOCK_CHARS).map((text) => ({ text, page: p.page })),
+  );
+
+  const countByPage = new Map<number, number>();
+  return sized.map((p, order) => {
+    const index = countByPage.get(p.page) ?? 0;
+    countByPage.set(p.page, index + 1);
+    return { id: `p${p.page}-b${index}`, text: p.text, page: p.page, order };
+  });
+}
+
+// 글자 수 기준으로 가장 많이 쓰인 글자 크기
+function dominantFontSize(pieces: Piece[]): number {
+  const counts = new Map<number, number>();
+  for (const p of pieces) {
+    const size = Math.round(p.fontSize * 2) / 2;
+    counts.set(size, (counts.get(size) ?? 0) + p.str.length);
+  }
+  let best = 0;
+  let bestCount = -1;
+  for (const [size, count] of counts) {
+    if (count > bestCount) [best, bestCount] = [size, count];
+  }
+  return best || 12;
+}
+
+// 단 맨 위·아래의 쪽번호, 그리고 여러 페이지에 반복되는 머리말·꼬리말을 지운다
+function removeRunningLines(pages: FlowLine[][][]): FlowLine[][][] {
+  const key = (line: FlowLine) => line.text.replace(/\d+/g, "#");
+  const edges = (lines: FlowLine[]) => [lines[0], lines[lines.length - 1]].filter(Boolean);
+  const edgeCount = new Map<string, number>();
+  for (const flows of pages) {
+    for (const k of new Set(flows.flatMap(edges).map(key))) edgeCount.set(k, (edgeCount.get(k) ?? 0) + 1);
+  }
+  const minPages = Math.max(2, pages.length * RUNNING_LINE_PAGE_RATIO);
+
+  return pages.map((flows) =>
+    flows
+      .map((lines) =>
+        lines.filter((line, i) => {
+          if (i !== 0 && i !== lines.length - 1) return true;
+          if (PAGE_NUMBER.test(line.text)) return false;
+          return (edgeCount.get(key(line)) ?? 0) < minPages;
+        }),
+      )
+      .filter((lines) => lines.length > 0),
+  );
+}
+
+function splitParagraphs(
+  lines: FlowLine[],
+  medianGap: number,
+  bodyFont: number,
+  figures: Box[],
+  vocab: Vocab,
+): Omit<Paragraph, "page">[] {
+  if (lines.length === 0) return [];
+
+  const maxWidth = Math.max(...lines.map((l) => l.width));
+  const leftMargin = Math.min(...lines.map((l) => l.x));
+  const isIndented = (line: FlowLine) => line.x - leftMargin > line.fontSize * INDENT_RATIO;
+  // 첫 줄 들여쓰기: 앞 줄보다 들어가 있고, 다음 줄은 다시 나온다.
+  // (초록처럼 통째로 들여 쓴 영역이나 목록의 내어쓰기 줄은 새 문단이 아니다)
+  // 오른쪽 끝까지 차 있어야 한다 (가운데 정렬된 제목의 둘째 줄은 들여쓰기가 아니다)
+  const isFirstLineIndent = (i: number) => {
+    const [prev, line, next] = [lines[i - 1], lines[i], lines[i + 1]];
+    const indent = line.fontSize * INDENT_RATIO;
+    const reachesRight = line.x + line.width >= prev.x + prev.width - indent;
+    return line.x - prev.x > indent && reachesRight && (!next || next.x < line.x - indent / 2);
+  };
+  // 내어쓰기: 앞 줄보다 나와 있으면 새 항목이나 들여 쓴 영역의 끝이다.
+  // 가운데 정렬 줄, 그리고 첫 줄만 들여 쓴 문단의 둘째 줄(문단이 아직 한 줄)은 제외한다.
+  let linesInParagraph = 1;
+  const isOutdent = (i: number) => {
+    if (linesInParagraph < 2) return false;
+    const [prev, line] = [lines[i - 1], lines[i]];
+    const centered = Math.abs(prev.x + prev.width / 2 - (line.x + line.width / 2)) < line.fontSize;
+    return prev.x - line.x > line.fontSize * INDENT_RATIO && !centered;
+  };
+  const start = (line: FlowLine, boundary: boolean) => ({
+    text: line.text,
+    fontSize: line.fontSize,
+    endFontSize: line.fontSize,
+    indented: isIndented(line),
+    boundary,
+  });
+
+  const paragraphs = [start(lines[0], true)];
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1];
+    const line = lines[i];
+    const current = paragraphs[paragraphs.length - 1];
+    const removedBetween = line.afterRemoved || hasFigureBetween(prev, line, figures);
+    const isBreak =
+      removedBetween ||
+      // 큰 글자(제목)는 줄 간격도 넓으므로 글자 크기에 비례해 기준을 늘린다
+      (medianGap > 0 &&
+        prev.y - line.y > medianGap * PARAGRAPH_GAP_RATIO * Math.max(1, prev.fontSize / bodyFont)) ||
+      Math.abs(line.fontSize - prev.fontSize) / prev.fontSize > FONT_SIZE_CHANGE_RATIO ||
+      (SENTENCE_END.test(prev.text) && prev.width < maxWidth * SHORT_LINE_RATIO) ||
+      prev.width < maxWidth * VERY_SHORT_LINE_RATIO ||
+      isFirstLineIndent(i) ||
+      isOutdent(i);
+
+    if (isBreak) {
+      paragraphs.push(start(line, removedBetween));
+      linesInParagraph = 1;
+    } else {
+      current.text = joinLines(current.text, line.text, vocab);
+      current.endFontSize = line.fontSize;
+      linesInParagraph++;
+    }
+  }
+  return paragraphs;
+}
+
+function hasFigureBetween(prev: FlowLine, line: FlowLine, figures: Box[]): boolean {
+  const left = Math.min(prev.x, line.x);
+  const right = Math.max(prev.x + prev.width, line.x + line.width);
+  return figures.some((b) => b.y0 >= line.y && b.y1 <= prev.y + prev.fontSize && b.x1 > left && b.x0 < right);
+}
+
+function removeCaptions(paragraphs: Paragraph[]): Paragraph[] {
+  const result: Paragraph[] = [];
+  let removed = false;
+  for (const p of paragraphs) {
+    if (isCaption(p.text)) {
+      removed = true;
+    } else {
+      result.push(removed ? { ...p, boundary: true } : p);
+      removed = false;
+    }
+  }
+  return result;
+}
+
+// 단·페이지 경계나 지워진 표·그림 때문에 끊긴 문장을 다시 잇는다.
+// 앞 문단이 문장 중간에서 끝났고, 둘 다 본문 크기이며, 다음 문단이 들여쓰기로 시작하지 않을 때만.
+function joinAtBoundaries(paragraphs: Paragraph[], bodyFont: number, vocab: Vocab): Paragraph[] {
+  const isBody = (size: number) => Math.abs(size - bodyFont) / bodyFont <= FONT_SIZE_CHANGE_RATIO;
+  const result: Paragraph[] = [];
+  for (const p of paragraphs) {
+    const last = result[result.length - 1];
+    if (
+      last &&
+      p.boundary &&
+      !p.indented &&
+      !PARAGRAPH_END.test(last.text) &&
+      isBody(last.endFontSize) &&
+      isBody(p.fontSize)
+    ) {
+      last.text = joinLines(last.text, p.text, vocab);
+      last.endFontSize = p.endFontSize;
+    } else {
+      result.push({ ...p });
+    }
+  }
+  return result;
+}
+
+// 짧은 문단(제목 등)은 다음 문단 앞에 줄바꿈으로 붙인다. 마지막이 짧으면 앞 문단에 붙인다.
+function mergeShort(paragraphs: Paragraph[]): Paragraph[] {
+  const result: Paragraph[] = [];
+  let pending: Paragraph | null = null;
+  for (const p of paragraphs) {
+    const merged: Paragraph = pending ? { ...p, text: `${pending.text}\n${p.text}`, page: pending.page } : p;
+    if (merged.text.length < MIN_BLOCK_CHARS) {
+      pending = merged;
+    } else {
+      result.push(merged);
+      pending = null;
+    }
+  }
+  if (pending) {
+    const last = result[result.length - 1];
+    if (last) last.text = `${last.text}\n${pending.text}`;
+    else result.push(pending);
+  }
+  return result;
+}
