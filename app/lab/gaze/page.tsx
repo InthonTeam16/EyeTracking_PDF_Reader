@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { GazeDebugDot } from "@/components/gaze/GazeDebugDot";
 import { Button } from "@/components/ui/button";
-import { useGaze } from "@/lib/gaze/useGaze";
+import { GAZE_MIN_TRAINING_CLICKS } from "@/lib/gaze/config";
+import { type GazeStatus, useGaze } from "@/lib/gaze/useGaze";
 import { useMouseGaze } from "@/lib/gaze/useMouseGaze";
 import { getMockBlocks } from "@/lib/mock/blocks";
 import { cn } from "@/lib/utils";
@@ -61,29 +62,78 @@ function MouseGazeLab() {
   return <GazeLabView gaze={gaze} lastDwell={lastDwell} />;
 }
 
+function describeStatus(status: GazeStatus): string {
+  switch (status.phase) {
+    case "loading":
+      return "모델을 불러오는 중입니다.";
+    case "camera":
+      return "카메라를 기다리는 중입니다. 권한 요청을 허용해 주세요.";
+    case "error":
+      return `시작하지 못했습니다: ${status.message}`;
+    case "tracking": {
+      const face = status.faceVisible
+        ? "얼굴 인식됨"
+        : "얼굴이 보이지 않습니다. 이 상태의 클릭은 학습되지 않습니다.";
+      return `${face} · 학습 ${status.clicks}회 (최소 ${GAZE_MIN_TRAINING_CLICKS}회)`;
+    }
+  }
+}
+
 function WebcamGazeLab() {
   const [lastDwell, setLastDwell] = useState<string | null>(null);
   const gaze = useGaze({
     onDwell: (blockId, ms) => setLastDwell(`${blockId} (${ms}ms)`),
   });
-  return <GazeLabView gaze={gaze} lastDwell={lastDwell} />;
+  return (
+    <>
+      <p
+        data-testid="gaze-status"
+        className={cn(
+          "text-sm font-medium",
+          gaze.status.phase === "error" && "text-destructive",
+        )}
+      >
+        {describeStatus(gaze.status)}
+      </p>
+      <GazeLabView gaze={gaze} lastDwell={lastDwell} />
+    </>
+  );
 }
 
+const MODES = {
+  mouse: { label: "마우스", Lab: MouseGazeLab },
+  webcam: { label: "웹캠", Lab: WebcamGazeLab },
+};
+
+type Mode = keyof typeof MODES;
+
 export default function GazeLabPage() {
-  const [mode, setMode] = useState<"mouse" | "webcam">("mouse");
+  const [mode, setMode] = useState<Mode>("mouse");
+  const { Lab } = MODES[mode];
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 p-8">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">시선 엔진 테스트</h1>
-        <Button
-          variant="outline"
-          onClick={() => setMode(mode === "mouse" ? "webcam" : "mouse")}
-        >
-          {mode === "mouse" ? "웹캠으로 전환" : "마우스로 전환"}
-        </Button>
+        <div className="flex gap-2">
+          {(Object.keys(MODES) as Mode[]).map((key) => (
+            <Button
+              key={key}
+              data-mode={key}
+              variant={mode === key ? "default" : "outline"}
+              onClick={() => setMode(key)}
+            >
+              {MODES[key].label}
+            </Button>
+          ))}
+        </div>
       </div>
-      {mode === "mouse" ? <MouseGazeLab /> : <WebcamGazeLab />}
+      {mode !== "mouse" && (
+        <p className="text-sm text-muted-foreground">
+          화면 곳곳을 바라보면서 클릭하면 학습합니다.
+        </p>
+      )}
+      <Lab />
     </main>
   );
 }

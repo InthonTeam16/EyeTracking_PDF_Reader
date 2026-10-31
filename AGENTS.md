@@ -18,7 +18,7 @@
 - Next.js (App Router, `src/` 없음) + TypeScript
 - Tailwind CSS + shadcn/ui (Nova 프리셋)
 - pdfjs-dist (PDF 텍스트 추출)
-- WebGazer.js (시선 좌표), MediaPipe Face Landmarker (찡그림 감지)
+- MediaPipe Face Landmarker (시선 좌표, 찡그림 감지)
 - LLM API (부가 설명) — 키는 `.env.local`의 `LLM_API_KEY`
 - Vercel 배포
 - 새 라이브러리 설치는 팀 단톡에 먼저 말하고 진행
@@ -88,7 +88,7 @@ export type GazeEvents = {
 - 백엔드나 시선 엔진이 아직 없으면 `lib/mock/`의 목업 데이터로 진행한다. 목업은 함수 하나로 감싸서 나중에 교체하기 쉽게 한다.
 
 ## 브라우저 전용 코드 주의
-- WebGazer, MediaPipe, pdfjs는 브라우저에서만 동작한다. 사용하는 컴포넌트는 `"use client"`를 붙이고, 라이브러리는 `useEffect` 안이나 dynamic import로 불러온다. 서버 컴포넌트나 API 라우트에서 import하지 않는다.
+- MediaPipe, pdfjs는 브라우저에서만 동작한다. 사용하는 컴포넌트는 `"use client"`를 붙이고, 라이브러리는 `useEffect` 안이나 dynamic import로 불러온다. 서버 컴포넌트나 API 라우트에서 import하지 않는다.
 - 타입이 없는 라이브러리는 `types/vendor.d.ts`에 `declare module`로 선언한다 (민서에게 요청).
 - 웹캠 스트림과 requestAnimationFrame 루프는 컴포넌트가 사라질 때 반드시 정리한다.
 
