@@ -38,6 +38,16 @@ export default function Home() {
               >
                 데이터 학습
               </Link>
+              {/* TODO(demo): 쓸 학습 데이터를 정하면 비교 페이지와 함께 지운다. */}
+              <Link
+                href="/lab/gaze/datasets"
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "lg" }),
+                  "h-13 rounded-xl px-5.5 text-base",
+                )}
+              >
+                데이터 테스트
+              </Link>
             </>
           }
         />

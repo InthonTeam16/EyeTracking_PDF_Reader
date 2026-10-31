@@ -2,14 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  GAZE_DATASET_FOLDS,
-  GAZE_MIN_DATASET_SAMPLES,
-  GAZE_OUTLIER_SIGMA,
-  GAZE_RIDGE_LAMBDA,
-} from "@/lib/gaze/config";
+import { exportSamples } from "@/lib/gaze/exportSamples";
 import { PRETRAINED_SAMPLES } from "@/lib/gaze/pretrainedSamples";
-import { cleanDataset, type GazeSample } from "@/lib/gaze/ridgeRegression";
 import { useGaze } from "@/lib/gaze/useGaze";
 
 // 짝수 열이라 화면 가운데가 비어 안내 문구를 둘 수 있다.
@@ -27,36 +21,6 @@ function dotPosition(clicks: number) {
     left: `${MARGIN_PERCENT + (span * (index % COLUMNS)) / (COLUMNS - 1)}%`,
     top: `${MARGIN_PERCENT + (span * Math.floor(index / COLUMNS)) / (ROWS - 1)}%`,
   };
-}
-
-// 기존 데이터에 이번 샘플을 더해 내려받고 결과 문구를 돌려준다.
-function exportDataset(session: GazeSample[]): string {
-  const dataset = cleanDataset(
-    [...PRETRAINED_SAMPLES, ...session],
-    GAZE_RIDGE_LAMBDA,
-    GAZE_DATASET_FOLDS,
-    GAZE_OUTLIER_SIGMA,
-    GAZE_MIN_DATASET_SAMPLES,
-  );
-  const round = (value: number) => Number(value.toFixed(5));
-  const rounded = dataset.samples.map((sample) => ({
-    features: sample.features.map(round),
-    x: round(sample.x),
-    y: round(sample.y),
-  }));
-
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(
-    new Blob([JSON.stringify(rounded)], { type: "application/json" }),
-  );
-  link.download = "pretrainedSamples.json";
-  link.click();
-  URL.revokeObjectURL(link.href);
-
-  const error = dataset.error
-    ? `처음 보는 자세의 평균 오차는 가로 ${(dataset.error.x * 100).toFixed(1)}%, 세로 ${(dataset.error.y * 100).toFixed(1)}%입니다.`
-    : `${GAZE_MIN_DATASET_SAMPLES}개 미만이라 이상치 제거와 오차 측정을 건너뛰었습니다.`;
-  return `${rounded.length}개를 내보냈습니다 (이상치 ${dataset.removed}개 제외). ${error} lib/gaze/pretrainedSamples.json에 덮어쓰세요.`;
 }
 
 // TODO(demo): 학습 데이터 수집용 임시 페이지. 데이터를 다 모으면 지운다.
@@ -120,7 +84,11 @@ export default function GazeCollectPage() {
               size="sm"
               variant="outline"
               data-testid="export-dataset"
-              onClick={() => setExportResult(exportDataset(gaze.getSamples()))}
+              onClick={() =>
+                setExportResult(
+                  exportSamples([...PRETRAINED_SAMPLES, ...gaze.getSamples()]),
+                )
+              }
             >
               내보내기
             </Button>
