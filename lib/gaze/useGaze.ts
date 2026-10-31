@@ -149,8 +149,16 @@ export function useGaze(
   const modelRef = useRef<GazeModel | null>(null);
   const usesPretrainedRef = useRef(usesPretrained);
   const offsetRef = useRef({ x: 0, y: 0 });
+  const modelInputsRef = useRef<unknown[] | null>(null);
 
   useEffect(() => {
+    // 페이지가 숨겨졌다 돌아올 때도 effect가 다시 돌므로, 입력이 그대로면 보정 결과를 지우지 않는다.
+    const inputs = [baseSamples, usesPretrained, guided, geometric];
+    const unchanged = modelInputsRef.current?.every(
+      (input, index) => input === inputs[index],
+    );
+    modelInputsRef.current = inputs;
+    if (unchanged) return;
     usesPretrainedRef.current = usesPretrained;
     modelRef.current = usesPretrained
       ? fitModel(baseSamples, guided, geometric)
@@ -349,6 +357,8 @@ export function useGaze(
     return () => {
       stop();
       document.removeEventListener("click", handleClick, true);
+      // 돌아왔을 때 첫 프레임 전까지 나가기 직전 시선이 남아 있지 않게 한다.
+      setGaze(NO_GAZE);
     };
   }, [guided, model, eyeLook, geometric, defer]);
 
