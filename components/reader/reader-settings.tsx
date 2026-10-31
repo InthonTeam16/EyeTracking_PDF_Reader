@@ -1,41 +1,48 @@
 "use client";
 
-import { Settings2Icon } from "lucide-react";
+import {
+  BanIcon,
+  EyeIcon,
+  FileTextIcon,
+  Settings2Icon,
+  SunMoonIcon,
+  TypeIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { setTheme, useTheme } from "@/components/reader/theme";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+export type HighlightColor = "yellow" | "green" | "pink" | "blue";
 
 export type ReaderSettings = {
   font: "sans" | "serif";
   // FONT_SIZE_CLASSES의 순서
   fontSize: number;
   lineHeight: "tight" | "normal" | "loose";
-  // BLUR_CLASSES의 순서
-  blur: number;
-  // 끄면 하이라이트·흐림 없이 그냥 읽는다
-  highlight: boolean;
+  // 0이면 하이라이트·흐림 없이 그냥 읽는다. 1부터는 BLUR_CLASSES[focus - 1]
+  focus: number;
   // 끄면 오래 응시해도 부가 설명 팝업을 띄우지 않는다
   explain: boolean;
   // 켜면 원본 PDF가 지금 읽는 블록의 페이지로 따라간다
   syncPdf: boolean;
-  // 원본 PDF에서 지금 읽는 문단을 형광펜처럼 칠한다
-  pdfHighlight: boolean;
-  pdfHighlightColor: HighlightColor;
+  // 원본 PDF에서 지금 읽는 줄을 칠할 형광펜 색. none이면 칠하지 않는다
+  pdfHighlightColor: HighlightColor | "none";
+  // 다크 모드에서 흰 PDF 페이지도 색을 뒤집어 어둡게 보여준다
+  darkPdf: boolean;
 };
-
-export type HighlightColor = "yellow" | "green" | "pink" | "blue";
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   font: "sans",
   fontSize: 1,
   lineHeight: "normal",
-  blur: 2,
-  highlight: true,
+  focus: 3,
   explain: true,
   syncPdf: false,
-  pdfHighlight: true,
   pdfHighlightColor: "yellow",
+  darkPdf: true,
 };
 
 // Tailwind가 클래스를 찾을 수 있게 전체 이름으로 적는다.
@@ -64,27 +71,22 @@ export const BLUR_CLASSES = [
   "opacity-20 blur-[8px]",
 ];
 
-// 기본값을 바꾸면 버전을 올려 예전에 저장된 설정 대신 새 기본값으로 시작하게 한다.
-const STORAGE_KEY = "reader-settings-v2";
-
-// 형광펜 색. 테마 토큰은 회색뿐이라 Tailwind 기본 팔레트를 쓴다 (docs/decisions.md).
-// 원본 PDF 위 박스: 연한 바탕 + 조금 진한 테두리. multiply로 겹쳐 글자가 흐려지지 않게 한다.
-export const HIGHLIGHT_BOX_CLASSES: Record<HighlightColor, string> = {
-  yellow: "border-yellow-400/70 bg-yellow-300/25",
-  green: "border-green-400/70 bg-green-300/25",
-  pink: "border-pink-400/70 bg-pink-300/25",
-  blue: "border-sky-400/70 bg-sky-300/25",
+// 형광펜 색. 테마 토큰은 회색뿐이라 Tailwind 기본 팔레트의 파스텔 톤(200)을 쓴다 (docs/decisions.md).
+export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
+  yellow: "bg-yellow-200",
+  green: "bg-green-200",
+  pink: "bg-pink-200",
+  blue: "bg-sky-200",
 };
-const HIGHLIGHT_SWATCHES: {
-  value: HighlightColor;
-  label: string;
-  className: string;
-}[] = [
-  { value: "yellow", label: "노랑", className: "bg-yellow-300" },
-  { value: "green", label: "초록", className: "bg-green-300" },
-  { value: "pink", label: "분홍", className: "bg-pink-300" },
-  { value: "blue", label: "파랑", className: "bg-sky-300" },
+const HIGHLIGHT_SWATCHES: { value: HighlightColor; label: string }[] = [
+  { value: "yellow", label: "노랑" },
+  { value: "green", label: "초록" },
+  { value: "pink", label: "분홍" },
+  { value: "blue", label: "파랑" },
 ];
+
+// 설정 모양을 바꾸면 버전을 올려 예전에 저장된 설정 대신 새 기본값으로 시작하게 한다.
+const STORAGE_KEY = "reader-settings-v3";
 
 // 다시 열어도 같은 설정으로 읽도록 이 브라우저에만 저장한다.
 export function useReaderSettings() {
@@ -113,6 +115,15 @@ export function useReaderSettings() {
   return [settings, update] as const;
 }
 
+type Tab = "text" | "reading" | "pdf" | "theme";
+
+const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
+  { value: "text", label: "글자", icon: TypeIcon },
+  { value: "reading", label: "읽기", icon: EyeIcon },
+  { value: "pdf", label: "원본 PDF", icon: FileTextIcon },
+  { value: "theme", label: "테마", icon: SunMoonIcon },
+];
+
 type ReaderSettingsButtonProps = {
   settings: ReaderSettings;
   onChange: (patch: Partial<ReaderSettings>) => void;
@@ -123,7 +134,9 @@ export function ReaderSettingsButton({
   onChange,
 }: ReaderSettingsButtonProps) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("text");
   const rootRef = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
 
   // 패널 밖을 누르거나 Esc를 누르면 닫는다.
   useEffect(() => {
@@ -158,102 +171,154 @@ export function ReaderSettingsButton({
         <div
           role="dialog"
           aria-label="보기 설정"
-          className="absolute top-full right-0 z-20 mt-2 flex w-72 flex-col gap-5 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 animate-in fade-in slide-in-from-top-1"
+          className="absolute top-full right-0 z-20 mt-2 w-72 overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 animate-in fade-in slide-in-from-top-1"
         >
-          <Row label="글꼴">
-            <Segmented
-              value={settings.font}
-              options={[
-                { value: "sans", label: "고딕" },
-                { value: "serif", label: "명조" },
-              ]}
-              onChange={(font) => onChange({ font })}
-            />
-          </Row>
+          <div role="tablist" className="flex border-b">
+            {TABS.map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={tab === value}
+                aria-label={label}
+                title={label}
+                onClick={() => setTab(value)}
+                className={cn(
+                  "flex flex-1 justify-center py-3 text-muted-foreground transition-colors hover:text-foreground",
+                  tab === value &&
+                    "text-foreground shadow-[inset_0_-2px_0_var(--color-foreground)]",
+                )}
+              >
+                <Icon className="size-4" />
+              </button>
+            ))}
+          </div>
 
-          <Row label="글자 크기">
-            <Range
-              value={settings.fontSize}
-              max={FONT_SIZE_CLASSES.length - 1}
-              onChange={(fontSize) => onChange({ fontSize })}
-              start={<span className="text-xs">가</span>}
-              end={<span className="text-lg">가</span>}
-            />
-          </Row>
+          <div role="tabpanel" className="flex flex-col gap-5 p-4">
+            {tab === "text" && (
+              <>
+                <Row label="글꼴">
+                  <Segmented
+                    value={settings.font}
+                    options={[
+                      { value: "sans", label: "고딕" },
+                      { value: "serif", label: "명조" },
+                    ]}
+                    onChange={(font) => onChange({ font })}
+                  />
+                </Row>
+                <Row label="글자 크기">
+                  <Range
+                    value={settings.fontSize}
+                    max={FONT_SIZE_CLASSES.length - 1}
+                    onChange={(fontSize) => onChange({ fontSize })}
+                    start={<span className="text-xs">가</span>}
+                    end={<span className="text-lg">가</span>}
+                  />
+                </Row>
+                <Row label="줄 간격">
+                  <Segmented
+                    value={settings.lineHeight}
+                    options={[
+                      { value: "tight", label: "좁게" },
+                      { value: "normal", label: "보통" },
+                      { value: "loose", label: "넓게" },
+                    ]}
+                    onChange={(lineHeight) => onChange({ lineHeight })}
+                  />
+                </Row>
+              </>
+            )}
 
-          <Row label="줄 간격">
-            <Segmented
-              value={settings.lineHeight}
-              options={[
-                { value: "tight", label: "좁게" },
-                { value: "normal", label: "보통" },
-                { value: "loose", label: "넓게" },
-              ]}
-              onChange={(lineHeight) => onChange({ lineHeight })}
-            />
-          </Row>
-
-          <Row label="흐림 강도">
-            <Range
-              value={settings.blur}
-              max={BLUR_CLASSES.length - 1}
-              disabled={!settings.highlight}
-              onChange={(blur) => onChange({ blur })}
-              start={
-                <span className="text-xs text-muted-foreground">약하게</span>
-              }
-              end={
-                <span className="text-xs text-muted-foreground">강하게</span>
-              }
-            />
-          </Row>
-
-          <div className="flex flex-col gap-3 border-t pt-4">
-            <Toggle
-              label="문단 하이라이트"
-              checked={settings.highlight}
-              onChange={(highlight) => onChange({ highlight })}
-            />
-            <Toggle
-              label="부가 설명"
-              checked={settings.explain}
-              onChange={(explain) => onChange({ explain })}
-            />
-            <Toggle
-              label="원본 PDF와 동기화"
-              checked={settings.syncPdf}
-              onChange={(syncPdf) => onChange({ syncPdf })}
-            />
-            <Toggle
-              label="원본 PDF 하이라이트"
-              checked={settings.pdfHighlight}
-              onChange={(pdfHighlight) => onChange({ pdfHighlight })}
-            />
-            <div
-              role="radiogroup"
-              aria-label="하이라이트 색"
-              className={cn(
-                "flex items-center justify-end gap-2",
-                !settings.pdfHighlight && "pointer-events-none opacity-50",
-              )}
-            >
-              {HIGHLIGHT_SWATCHES.map((swatch) => (
-                <button
-                  key={swatch.value}
-                  type="button"
-                  role="radio"
-                  aria-label={swatch.label}
-                  aria-checked={settings.pdfHighlightColor === swatch.value}
-                  onClick={() => onChange({ pdfHighlightColor: swatch.value })}
-                  className={cn(
-                    "size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow",
-                    swatch.className,
-                    settings.pdfHighlightColor === swatch.value &&
-                      "ring-2 ring-ring",
-                  )}
+            {tab === "reading" && (
+              <>
+                <Row label="집중 효과">
+                  <Range
+                    value={settings.focus}
+                    max={BLUR_CLASSES.length}
+                    onChange={(focus) => onChange({ focus })}
+                    start={
+                      <span className="text-xs text-muted-foreground">끔</span>
+                    }
+                    end={
+                      <span className="text-xs text-muted-foreground">
+                        강하게
+                      </span>
+                    }
+                  />
+                </Row>
+                <Toggle
+                  label="오래 보면 부가 설명"
+                  checked={settings.explain}
+                  onChange={(explain) => onChange({ explain })}
                 />
-              ))}
-            </div>
+              </>
+            )}
+
+            {tab === "pdf" && (
+              <>
+                <Row label="형광펜">
+                  <div
+                    role="radiogroup"
+                    aria-label="형광펜 색"
+                    className="flex items-center gap-2"
+                  >
+                    <Swatch
+                      label="없음"
+                      selected={settings.pdfHighlightColor === "none"}
+                      onSelect={() => onChange({ pdfHighlightColor: "none" })}
+                      className="flex items-center justify-center bg-muted text-muted-foreground"
+                    >
+                      <BanIcon className="size-3" />
+                    </Swatch>
+                    {HIGHLIGHT_SWATCHES.map((swatch) => (
+                      <Swatch
+                        key={swatch.value}
+                        label={swatch.label}
+                        selected={settings.pdfHighlightColor === swatch.value}
+                        onSelect={() =>
+                          onChange({ pdfHighlightColor: swatch.value })
+                        }
+                        className={HIGHLIGHT_CLASSES[swatch.value]}
+                      />
+                    ))}
+                  </div>
+                </Row>
+                <Toggle
+                  label="읽는 페이지 따라가기"
+                  checked={settings.syncPdf}
+                  onChange={(syncPdf) => onChange({ syncPdf })}
+                />
+              </>
+            )}
+
+            {tab === "theme" && (
+              <>
+                <Row label="화면">
+                  <Segmented
+                    value={theme}
+                    options={[
+                      { value: "light", label: "라이트" },
+                      { value: "dark", label: "다크" },
+                      { value: "system", label: "시스템" },
+                    ]}
+                    onChange={setTheme}
+                  />
+                </Row>
+                <Row label="다크에서 PDF">
+                  <Segmented
+                    value={settings.darkPdf ? "dark" : "original"}
+                    options={[
+                      { value: "original", label: "원본 색" },
+                      { value: "dark", label: "어둡게" },
+                    ]}
+                    onChange={(value) =>
+                      onChange({ darkPdf: value === "dark" })
+                    }
+                  />
+                </Row>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -302,25 +367,18 @@ function Segmented<T extends string>({
 function Range({
   value,
   max,
-  disabled,
   onChange,
   start,
   end,
 }: {
   value: number;
   max: number;
-  disabled?: boolean;
   onChange: (value: number) => void;
   start: ReactNode;
   end: ReactNode;
 }) {
   return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-1 items-center gap-2",
-        disabled && "opacity-50",
-      )}
-    >
+    <div className="flex min-w-0 flex-1 items-center gap-2">
       {start}
       <input
         type="range"
@@ -328,12 +386,43 @@ function Range({
         max={max}
         step={1}
         value={value}
-        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
         className="min-w-0 flex-1 accent-primary"
       />
       {end}
     </div>
+  );
+}
+
+function Swatch({
+  label,
+  selected,
+  onSelect,
+  className,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+  className: string;
+  children?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-label={label}
+      title={label}
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "size-6 rounded-full ring-1 ring-foreground/10 ring-offset-2 ring-offset-popover transition-shadow",
+        selected && "ring-2 ring-ring",
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

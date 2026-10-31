@@ -37,7 +37,7 @@ export function ReaderView({
   notice,
 }: ReaderViewProps) {
   // 시선을 아직 못 잡았거나(null) 하이라이트를 껐으면 모든 블록을 선명하게 둔다.
-  const focusing = settings.highlight && activeBlockId !== null;
+  const focusing = settings.focus > 0 && activeBlockId !== null;
 
   return (
     <article className="mx-auto flex w-full max-w-2xl flex-col gap-12 px-6 py-10">
@@ -61,7 +61,7 @@ export function ReaderView({
                     LINE_HEIGHT_CLASSES[settings.lineHeight],
                     active &&
                       "bg-accent text-accent-foreground ring-1 ring-ring/30",
-                    focusing && !active && BLUR_CLASSES[settings.blur],
+                    focusing && !active && BLUR_CLASSES[settings.focus - 1],
                   )}
                 >
                   {block.text}

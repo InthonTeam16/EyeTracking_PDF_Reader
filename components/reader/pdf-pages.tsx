@@ -21,11 +21,13 @@ import {
 } from "react";
 
 import {
+  resolveBlockPages,
   useHighlightBoxes,
   type HighlightTarget,
 } from "@/components/reader/pdf-highlight";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { Block } from "@/types";
 
 const ZOOM_STEP = 0.25;
 const MIN_ZOOM = 0.5;
@@ -34,6 +36,11 @@ const MAX_ZOOM = 2;
 const MAX_PAGE_WIDTH = 820;
 // 페이지 좌우 여백 (px)
 const PAGE_GUTTER = 48;
+// 따라가기: 형광펜 줄이 화면 높이의 이 구간(위에서부터 비율) 안에 있으면 움직이지 않고,
+// 벗어나면 FOLLOW_TARGET 지점으로 옮긴다.
+const FOLLOW_BAND_TOP = 0.15;
+const FOLLOW_BAND_BOTTOM = 0.6;
+const FOLLOW_TARGET = 0.3;
 // 칸 폭이 바뀐 뒤 페이지를 다시 그리기까지 기다리는 시간
 const RESIZE_DELAY_MS = 150;
 // 오른쪽 페이지 목록의 썸네일 폭 (px)
@@ -120,19 +127,27 @@ function useDragToPan(scrollRef: RefObject<HTMLDivElement | null>) {
 
 type PdfPagesProps = {
   file: File;
-  // 바뀔 때마다 이 페이지로 스크롤한다 (집중 읽기와 동기화).
-  syncPage: number | null;
+  // 켜면 지금 읽는 블록(highlight) 위치를 따라 스크롤한다 (집중 읽기와 동기화).
+  follow: boolean;
   // 페이지 목록을 둘 쪽. 분할 보기에서 PDF가 왼쪽이면 화면 바깥쪽인 왼쪽에 둔다.
   thumbnailsSide?: "left" | "right";
-  // 형광펜처럼 칠할 블록과 박스 색 클래스. null이면 칠하지 않는다.
-  highlight?: (HighlightTarget & { className: string }) | null;
+  // 지금 읽는 블록과 형광펜 색 클래스. className이 null이면 위치만 따라가고 칠하지 않는다.
+  highlight?: (HighlightTarget & { className: string | null }) | null;
+  // 다크 모드에서 흰 페이지를 뒤집어 검은 바탕에 밝은 글씨로 보여준다.
+  inverted?: boolean;
+  // 문서를 열면 블록마다 실제 원본 페이지를 찾아 알려준다.
+  blocks?: Block[];
+  onResolvePages?: (pages: Map<string, number>) => void;
 };
 
 export function PdfPages({
   file,
-  syncPage,
+  follow,
   thumbnailsSide = "right",
   highlight = null,
+  inverted = false,
+  blocks,
+  onResolvePages,
 }: PdfPagesProps) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [failed, setFailed] = useState(false);
@@ -148,6 +163,20 @@ export function PdfPages({
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const highlighted = useHighlightBoxes(doc, highlight);
   const { panning, handlers: panHandlers } = useDragToPan(scrollRef);
+
+  useEffect(() => {
+    if (!doc || !blocks || !onResolvePages) return;
+    let cancelled = false;
+    resolveBlockPages(doc, blocks)
+      .then((pages) => {
+        if (!cancelled) onResolvePages(pages);
+      })
+      // 못 찾으면 toBlocks가 준 페이지 번호를 그대로 쓴다.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, blocks, onResolvePages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,10 +235,42 @@ export function PdfPages({
   const shown = scale !== null;
   const numPages = doc?.numPages ?? 0;
 
+  // 따라가기: 형광펜 첫 줄이 화면의 편한 구간을 벗어나면 그 줄이 위쪽 30%에 오도록
+  // 부드럽게 스크롤한다. 같은 페이지 안에서는 조금씩, 다음 페이지로 가면 그만큼 넘어간다.
+  // 위치를 못 찾은 블록은 그 페이지 맨 위로 간다.
+  const followPage = highlight?.page ?? null;
+  const firstLine = highlighted?.[0];
+  const followKey = !followPage
+    ? null
+    : highlighted === null
+      ? "pending"
+      : firstLine?.boxes[0]
+        ? `${firstLine.page}:${firstLine.boxes[0].top}`
+        : `page:${followPage}`;
   useEffect(() => {
-    if (doc && shown && syncPage)
-      scrollToPage(scrollRef.current, pageRefs.current, syncPage);
-  }, [doc, shown, syncPage]);
+    const container = scrollRef.current;
+    if (!follow || !doc || !shown || !container || !followKey) return;
+    if (followKey === "pending") return;
+    const line = firstLine?.boxes[0];
+    const pageElement = firstLine ? pageRefs.current[firstLine.page - 1] : null;
+    if (!line || !pageElement) {
+      if (followPage) scrollToPage(container, pageRefs.current, followPage);
+      return;
+    }
+    const y = pageElement.offsetTop + line.top * pageElement.offsetHeight;
+    const top = container.scrollTop;
+    const height = container.clientHeight;
+    if (
+      y < top + height * FOLLOW_BAND_TOP ||
+      y > top + height * FOLLOW_BAND_BOTTOM
+    )
+      container.scrollTo({
+        top: y - height * FOLLOW_TARGET,
+        behavior: "smooth",
+      });
+    // followKey가 바뀔 때만 움직인다 (같은 줄을 보는 동안 다시 스크롤하지 않게).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, doc, shown, followKey]);
 
   const goToPage = (page: number) =>
     scrollToPage(scrollRef.current, pageRefs.current, page);
@@ -312,16 +373,22 @@ export function PdfPages({
                     pageNumber={index + 1}
                     width={baseSize.width * scale}
                     height={baseSize.height * scale}
+                    inverted={inverted}
                   />
-                  {highlight &&
+                  {highlight?.className &&
                     highlighted
-                      .find((h) => h.page === index + 1)
+                      ?.find((h) => h.page === index + 1)
                       ?.boxes.map((box, boxIndex) => (
                         <div
                           key={boxIndex}
                           aria-hidden="true"
                           className={cn(
-                            "pointer-events-none absolute rounded-md border-2 mix-blend-multiply transition-all duration-300",
+                            "pointer-events-none absolute rounded-[2px]",
+                            // 흰 페이지에서는 곱하기로 겹쳐 글자가 그대로 보이게 하고,
+                            // 뒤집은 검은 페이지에서는 밝은 글자가 묻히지 않게 연하게 겹친다.
+                            inverted
+                              ? "opacity-30 mix-blend-screen"
+                              : "mix-blend-multiply",
                             highlight.className,
                           )}
                           // 페이지 비율 위치라 Tailwind 클래스로 정할 수 없다.
@@ -346,6 +413,7 @@ export function PdfPages({
             currentPage={currentPage}
             onSelect={goToPage}
             side={thumbnailsSide}
+            inverted={inverted}
           />
         )}
       </div>
@@ -359,6 +427,7 @@ type PageThumbnailsProps = {
   currentPage: number;
   onSelect: (page: number) => void;
   side: "left" | "right";
+  inverted: boolean;
 };
 
 function PageThumbnails({
@@ -367,6 +436,7 @@ function PageThumbnails({
   currentPage,
   onSelect,
   side,
+  inverted,
 }: PageThumbnailsProps) {
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const height = (baseSize.height / baseSize.width) * THUMBNAIL_WIDTH;
@@ -410,6 +480,7 @@ function PageThumbnails({
                 pageNumber={page}
                 width={THUMBNAIL_WIDTH}
                 height={height}
+                inverted={inverted}
               />
             </span>
             <span className={cn(active && "font-medium text-foreground")}>
@@ -429,12 +500,19 @@ type PdfCanvasProps = {
   width: number;
   // 그리기 전 자리 높이. 그린 뒤에는 페이지 실제 비율로 바뀐다.
   height: number;
+  inverted: boolean;
 };
 
 // 화면 근처에 온 페이지만 그린다. 페이지가 많은 문서도 처음에 느려지지 않게 하기 위해서.
 // 크기가 바뀔 때마다 새 canvas에 다 그린 뒤 바꿔 끼운다. 같은 canvas를 다시 쓰면
 // 이전 그리기가 끝나기 전에 겹쳐 그려져 배율이 어긋난다.
-function PdfCanvas({ doc, pageNumber, width, height }: PdfCanvasProps) {
+function PdfCanvas({
+  doc,
+  pageNumber,
+  width,
+  height,
+  inverted,
+}: PdfCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [renderedHeight, setRenderedHeight] = useState<number | null>(null);
@@ -504,7 +582,8 @@ function PdfCanvas({ doc, pageNumber, width, height }: PdfCanvasProps) {
       ref={hostRef}
       // 페이지 크기는 PDF마다 달라 Tailwind 클래스로 정할 수 없다.
       style={{ width, height: renderedHeight ?? height }}
-      className="overflow-hidden"
+      // 색을 뒤집고 색상만 반 바퀴 돌려 그림·컬러 글자는 원래 색에 가깝게 둔다.
+      className={cn("overflow-hidden", inverted && "invert hue-rotate-180")}
     />
   );
 }

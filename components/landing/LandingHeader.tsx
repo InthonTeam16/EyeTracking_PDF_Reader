@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Eye } from "lucide-react";
 
+import { ThemeToggle } from "@/components/reader/theme";
+
 export function LandingHeader() {
   return (
     <header className="border-b border-border">
@@ -12,6 +14,9 @@ export function LandingHeader() {
           <Eye className="size-6" strokeWidth={1.8} aria-hidden="true" />
           EyeTracking PDF Reader
         </Link>
+        <div className="ml-auto">
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
