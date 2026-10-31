@@ -18,6 +18,24 @@ const PANE_SWITCH_MS = 400;
 const X_EASING = 0.15;
 // 사람이 직접 스크롤했는지 가리기 위해, 넘기며 스크롤한 뒤 이 시간(ms)은 직접 스크롤로 보지 않는다.
 const AUTO_SCROLL_MS = 700;
+// 기준점: 읽는 블록은 늘 칸 가운데에 있으니, 읽는 동안의 시선 높이를 그 사람의 "가운데"로 본다.
+// 보정 뒤에도 남는 일정한 위아래 치우침(자세가 바뀌면 천천히 변함)을 이걸로 상쇄하고,
+// 넘김은 칸 안의 절대 위치가 아니라 기준점에서 얼마나 벗어났는지로 판단한다.
+// TODO(demo): 임시값. 실제 웹캠으로 읽어 보고 조정한다.
+// 기준점이 시선을 따라가는 시간 상수(ms). 클수록 눈짓에 덜 끌려간다.
+const BASELINE_TAU_MS = 3000;
+// 기준점에서 이만큼(칸 높이 비율) 안쪽일 때만 "읽는 중"으로 보고 기준점을 옮긴다.
+const BASELINE_FOLLOW_RANGE = 0.2;
+// 기준점이 갈 수 있는 범위. 너무 끝으로 가면 그쪽 눈짓을 알아챌 수 없다.
+const BASELINE_MIN = 0.2;
+const BASELINE_MAX = 0.8;
+// 눈짓 구역에 들어간 뒤에는 이만큼 더 돌아와야 가운데로 본다. 경계에서 흔들려 눈짓 타이머가
+// 자꾸 처음부터 다시 시작되지 않게 한다 (가상 시뮬레이션에서 놓친 눈짓 30~100/129 → 0~12/129).
+const ZONE_HYSTERESIS = 0.1;
+// 칸 위아래로 이만큼(칸 높이 비율) 벗어난 시선까지는 눈짓으로 본다. 치우침이 큰 사람 대비.
+const VERTICAL_TOLERANCE = 0.4;
+const NEXT_OFFSET = nextZone - 0.5;
+const PREVIOUS_OFFSET = previousZone - 0.5;
 
 function blockElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>("[data-block-id]")];
@@ -97,9 +115,14 @@ export function useCenterReading(
     let onText = true;
     let pendingSince = 0;
     let easedX: number | null = null;
+    // 이 사람의 "가운데" 시선 높이(칸 높이 비율)
+    let baseline = 0.5;
+    let lastTick = 0;
 
     const tick = (now: number) => {
       frame = requestAnimationFrame(tick);
+      const dt = lastTick === 0 ? 0 : Math.min(now - lastTick, 100);
+      lastTick = now;
       const container = scrollRef.current;
       const target = pointRef.current;
       if (!container) return;
@@ -146,16 +169,31 @@ export function useCenterReading(
         target &&
         target.x >= view.left &&
         target.x <= view.right &&
-        target.y >= view.top - view.height * 0.2 &&
-        target.y <= view.bottom + view.height * 0.2;
+        target.y >= view.top - view.height * VERTICAL_TOLERANCE &&
+        target.y <= view.bottom + view.height * VERTICAL_TOLERANCE;
       // 얼굴을 놓치거나 칸 밖·원본 PDF를 보면 넘기지 않는다.
-      const ratio = inside ? (target.y - view.top) / view.height : 0.5;
+      const offset = inside
+        ? (target.y - view.top) / view.height - baseline
+        : 0;
+      const nextAt = NEXT_OFFSET - (zone === "next" ? ZONE_HYSTERESIS : 0);
+      const previousAt =
+        PREVIOUS_OFFSET + (zone === "previous" ? ZONE_HYSTERESIS : 0);
       const current =
-        ratio > nextZone
-          ? "next"
-          : ratio < previousZone
-            ? "previous"
-            : "middle";
+        offset > nextAt ? "next" : offset < previousAt ? "previous" : "middle";
+
+      // 가운데를 보며 읽는 동안에만 기준점을 시선 쪽으로 천천히 옮긴다.
+      // 눈짓하는 동안에는 멈춰서, 아래를 보는 걸 새 가운데로 착각하지 않는다.
+      if (
+        inside &&
+        current === "middle" &&
+        Math.abs(offset) < BASELINE_FOLLOW_RANGE
+      ) {
+        const rate = 1 - Math.exp(-dt / BASELINE_TAU_MS);
+        baseline = Math.min(
+          Math.max(baseline + offset * rate, BASELINE_MIN),
+          BASELINE_MAX,
+        );
+      }
 
       if (current !== zone) {
         zone = current;
