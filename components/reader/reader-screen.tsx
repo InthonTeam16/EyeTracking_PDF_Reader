@@ -126,7 +126,9 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
     );
   };
 
-  const render = (gaze: GazeState, message: string) => {
+  const render = (gaze: GazeState, message: string, onPdf: boolean) => {
+    // 분할 보기에서 원본 PDF를 보는 중이면 어느 칸을 보는지와 읽기가 멈췄다는 걸 보여준다.
+    const viewingPdf = split && onPdf;
     const activeBlock = pagedBlocks.find(
       (block) => block.id === gaze.activeBlockId,
     );
@@ -175,7 +177,10 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             <div className="relative flex min-h-0 flex-1 flex-col">
               <div
                 ref={readingScrollRef}
-                className="min-h-0 flex-1 overflow-y-auto"
+                className={cn(
+                  "min-h-0 flex-1 overflow-y-auto transition-opacity duration-200",
+                  viewingPdf && "opacity-50",
+                )}
               >
                 <ReaderView
                   blocks={pagedBlocks}
@@ -200,6 +205,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                 />
               </div>
               <StepTimer timerRef={stepTimerRef} />
+              <ReadingPausedBadge visible={viewingPdf} />
             </div>
             <ReadingProgress {...progress} />
           </section>
@@ -211,11 +217,19 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
           <section
             aria-label="원본 PDF"
             className={cn(
-              "min-h-0 min-w-0 flex-1 flex-col",
+              "relative min-h-0 min-w-0 flex-1 flex-col",
               viewMode === "focus" ? "hidden" : "flex",
               split && pdfFirst ? "order-1" : "order-3",
             )}
           >
+            {/* 칸 내용 위에 그려야 해서 테두리를 따로 둔다. */}
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-0 z-20 border-2 border-primary transition-opacity duration-200",
+                viewingPdf ? "opacity-100" : "opacity-0",
+              )}
+            />
             {file && (
               <PdfPages
                 file={file}
@@ -352,6 +366,21 @@ function StepTimer({
   );
 }
 
+// 스크롤해도 보이도록 집중 읽기 칸 위쪽에 고정한다.
+function ReadingPausedBadge({ visible }: { visible: boolean }) {
+  return (
+    <p
+      aria-hidden={!visible}
+      className={cn(
+        "pointer-events-none absolute inset-x-0 top-4 z-10 mx-auto w-fit rounded-full bg-primary px-3 py-1 text-xs text-primary-foreground transition-opacity duration-200",
+        visible ? "opacity-100" : "opacity-0",
+      )}
+    >
+      원본 PDF를 보는 중 · 읽기 멈춤
+    </p>
+  );
+}
+
 function ReadingProgress({
   current,
   total,
@@ -385,7 +414,8 @@ type GazeSourceProps = {
   dwellMsFor: (blockId: string) => number;
   // 읽는 블록이 바뀌면 알린다 (다른 블록의 설명 팝업을 닫는 데 쓴다)
   onActiveBlockChange: (blockId: string | null) => void;
-  render: (gaze: GazeState, message: string) => ReactNode;
+  // onPdf: 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF)에 있어 읽기가 멈춘 상태
+  render: (gaze: GazeState, message: string, onPdf: boolean) => ReactNode;
 };
 
 // 읽는 블록 기준으로 설명 타이머를 재고, 블록이 바뀌면 알린다.
@@ -432,9 +462,6 @@ type CenterReadingProps = {
   stepTimerRef: RefObject<HTMLElement | null>;
 };
 
-const LOOKING_AT_PDF_MESSAGE =
-  "원본 PDF를 보는 중이라 집중 읽기는 멈춰 있어요.";
-
 function WebcamGaze({
   events,
   dwellMsFor,
@@ -478,9 +505,8 @@ function WebcamGaze({
       )}
       {render(
         { ...gaze, activeBlockId },
-        gaze.calibrated && !lookingAtText
-          ? LOOKING_AT_PDF_MESSAGE
-          : describeWebcam(gaze.status, gaze.calibrated),
+        describeWebcam(gaze.status, gaze.calibrated),
+        gaze.calibrated && !lookingAtText,
       )}
     </>
   );
@@ -507,10 +533,7 @@ function MouseGaze({
     dwellMsFor,
     onActiveBlockChange,
   });
-  return render(
-    { ...gaze, activeBlockId },
-    lookingAtText ? message : LOOKING_AT_PDF_MESSAGE,
-  );
+  return render({ ...gaze, activeBlockId }, message, !lookingAtText);
 }
 
 // TODO(demo): 민서님 보정 오버레이가 나오면 보정 안내는 그쪽으로 옮긴다.
