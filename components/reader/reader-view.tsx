@@ -18,6 +18,8 @@ type ReaderViewProps = {
   aside?: { blockId: string; content: ReactNode };
   // 본문 위에 띄울 안내 (시선 상태)
   notice?: ReactNode;
+  // 원본 페이지 구분("원본 N쪽")을 보여줄지. 페이지가 없는 TXT·목업은 끈다.
+  showPages?: boolean;
 };
 
 // block.page는 toBlocks가 넣은 원본 PDF의 페이지 번호다.
@@ -35,6 +37,7 @@ export function ReaderView({
   settings,
   aside,
   notice,
+  showPages = true,
 }: ReaderViewProps) {
   // 시선을 아직 못 잡았거나(null) 하이라이트를 껐으면 모든 블록을 선명하게 둔다.
   const focusing = settings.focus > 0 && activeBlockId !== null;
@@ -44,9 +47,11 @@ export function ReaderView({
       {notice}
       {groupByPage(blocks).map(([page, pageBlocks]) => (
         <section key={page} className="flex flex-col gap-10">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground">
-            원본 {page}쪽
-          </p>
+          {showPages && (
+            <p className="text-xs font-medium tracking-wide text-muted-foreground">
+              원본 {page}쪽
+            </p>
+          )}
           {pageBlocks.map((block) => {
             const active = focusing && block.id === activeBlockId;
             return (

@@ -60,9 +60,12 @@ export function ReaderScreen() {
 
 // 블록이 준비된 뒤에만 시선 추적과 설명 팝업을 붙인다.
 function ReaderContent({ doc }: { doc: ReaderDocument }) {
-  const { blocks, file } = doc;
+  const { blocks, pdf: file, kind, title } = doc;
   const { openBlockId, explanation, open, close } = useExplanations(blocks);
-  const [viewMode, setViewMode] = useState<ViewMode>("focus");
+  const [chosenViewMode, setViewMode] = useState<ViewMode>("focus");
+  // 원본 PDF가 없는 문서(TXT, 목업)는 집중 읽기만 쓴다.
+  const hasPdf = file !== null;
+  const viewMode: ViewMode = hasPdf ? chosenViewMode : "focus";
   const [gazeMode, setGazeMode] = useState<GazeMode>("webcam");
   // 웹캠을 못 써서 마우스로 넘어온 경우 그 이유를 보여준다.
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
@@ -112,12 +115,21 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
       (block) => block.id === gaze.activeBlockId,
     );
     const activePage = activeBlock?.page ?? null;
+    // PDF는 원본 페이지, 페이지가 없는 문서는 문단 순서로 진행 위치를 보여준다.
+    const progress = hasPdf
+      ? { current: activePage, total: totalPages, unit: "" }
+      : {
+          current: activeBlock ? pagedBlocks.indexOf(activeBlock) + 1 : null,
+          total: pagedBlocks.length,
+          unit: " 문단",
+        };
 
     return (
       <>
         <ReaderHeader
-          title={file?.name ?? "샘플 문서"}
+          title={title}
           viewMode={viewMode}
+          showViewModes={hasPdf}
           onViewModeChange={setViewMode}
           onSwapPanes={() => setPdfFirst((prev) => !prev)}
           gazeMode={gazeMode}
@@ -126,6 +138,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             <ReaderSettingsButton
               settings={settings}
               onChange={updateSettings}
+              hasPdf={hasPdf}
             />
           }
         />
@@ -146,6 +159,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             <div className="min-h-0 flex-1 overflow-y-auto">
               <ReaderView
                 blocks={pagedBlocks}
+                showPages={kind === "pdf"}
                 activeBlockId={gaze.activeBlockId}
                 settings={settings}
                 notice={<GazeNotice mode={gazeMode} message={message} />}
@@ -164,7 +178,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                 }
               />
             </div>
-            <ReadingProgress page={activePage} totalPages={totalPages} />
+            <ReadingProgress {...progress} />
           </section>
 
           {split && (
@@ -179,7 +193,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
               split && pdfFirst ? "order-1" : "order-3",
             )}
           >
-            {file ? (
+            {file && (
               <PdfPages
                 file={file}
                 follow={settings.syncPdf}
@@ -201,10 +215,6 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
                     : null
                 }
               />
-            ) : (
-              <p className="m-auto p-8 text-sm text-muted-foreground">
-                샘플 문서라 원본 PDF가 없어요. PDF를 올리면 여기서 볼 수 있어요.
-              </p>
             )}
           </section>
         </div>
@@ -290,13 +300,15 @@ function GazeNotice({ mode, message }: { mode: GazeMode; message: string }) {
 }
 
 function ReadingProgress({
-  page,
-  totalPages,
+  current,
+  total,
+  unit,
 }: {
-  page: number | null;
-  totalPages: number;
+  current: number | null;
+  total: number;
+  unit: string;
 }) {
-  const percent = page ? (page / totalPages) * 100 : 0;
+  const percent = current ? (current / total) * 100 : 0;
   return (
     <footer className="mx-auto w-full max-w-2xl shrink-0 px-6 pb-3">
       <div className="h-0.5 bg-muted">
@@ -307,7 +319,8 @@ function ReadingProgress({
         />
       </div>
       <p className="mt-2 text-right text-xs text-muted-foreground tabular-nums">
-        {page ?? "–"} / {totalPages}
+        {current ?? "–"} / {total}
+        {unit}
       </p>
     </footer>
   );
