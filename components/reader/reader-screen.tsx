@@ -91,6 +91,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   const splitRef = useRef<HTMLDivElement>(null);
   // 읽는 블록을 가운데로 데려오는 집중 읽기 스크롤 영역
   const readingScrollRef = useRef<HTMLDivElement>(null);
+  const stepTimerRef = useRef<HTMLDivElement>(null);
   // 원본 PDF에서 다시 찾은 블록별 실제 페이지. 찾기 전에는 toBlocks가 준 페이지를 쓴다.
   const [resolvedPages, setResolvedPages] = useState<Map<
     string,
@@ -171,31 +172,34 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
             // 끌어서 바꾸는 비율이라 Tailwind 클래스로 정할 수 없다.
             style={split ? { flexBasis: `${readingRatio * 100}%` } : undefined}
           >
-            <div
-              ref={readingScrollRef}
-              className="min-h-0 flex-1 overflow-y-auto"
-            >
-              <ReaderView
-                blocks={pagedBlocks}
-                showPages={kind === "pdf"}
-                centerSpace
-                activeBlockId={gaze.activeBlockId}
-                settings={settings}
-                notice={<GazeNotice mode={gazeMode} message={message} />}
-                aside={
-                  settings.explain && openBlockId && explanation
-                    ? {
-                        blockId: openBlockId,
-                        content: (
-                          <ExplainPopover
-                            explanation={explanation}
-                            onClose={close}
-                          />
-                        ),
-                      }
-                    : undefined
-                }
-              />
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div
+                ref={readingScrollRef}
+                className="min-h-0 flex-1 overflow-y-auto"
+              >
+                <ReaderView
+                  blocks={pagedBlocks}
+                  showPages={kind === "pdf"}
+                  centerSpace
+                  activeBlockId={gaze.activeBlockId}
+                  settings={settings}
+                  notice={<GazeNotice mode={gazeMode} message={message} />}
+                  aside={
+                    settings.explain && openBlockId && explanation
+                      ? {
+                          blockId: openBlockId,
+                          content: (
+                            <ExplainPopover
+                              explanation={explanation}
+                              onClose={close}
+                            />
+                          ),
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+              <StepTimer timerRef={stepTimerRef} />
             </div>
             <ReadingProgress {...progress} />
           </section>
@@ -248,6 +252,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
       dwellMsFor={dwellMsFor}
       onActiveBlockChange={closeUnless}
       scrollRef={readingScrollRef}
+      stepTimerRef={stepTimerRef}
       onFail={() => {
         setFallbackReason("웹캠을 쓸 수 없어 마우스 모드로 전환했어요.");
         setGazeMode("mouse");
@@ -260,6 +265,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
       dwellMsFor={dwellMsFor}
       onActiveBlockChange={closeUnless}
       scrollRef={readingScrollRef}
+      stepTimerRef={stepTimerRef}
       message={fallbackReason ?? "마우스 커서를 시선 대신 쓰는 중이에요."}
       render={render}
     />
@@ -321,6 +327,28 @@ function GazeNotice({ mode, message }: { mode: GazeMode; message: string }) {
       <Icon className="size-4 shrink-0 text-foreground" />
       {message}
     </p>
+  );
+}
+
+// 눈짓으로 넘기기까지 남은 시간. 시선이 있는 쪽(칸 위나 아래) 가장자리에 차오른다.
+// 값은 useCenterReading이 data-side와 --step-progress로 직접 넣는다.
+function StepTimer({
+  timerRef,
+}: {
+  timerRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={timerRef}
+      aria-hidden
+      className="pointer-events-none absolute inset-x-6 z-10 mx-auto hidden h-1.5 max-w-2xl overflow-hidden rounded-full bg-muted data-[side]:block data-[side=next]:bottom-4 data-[side=previous]:top-4"
+    >
+      {/* 매 프레임 바뀌는 값이라 Tailwind 클래스로 정할 수 없다. */}
+      <div
+        className="h-full origin-left bg-primary"
+        style={{ transform: "scaleX(var(--step-progress, 0))" }}
+      />
+    </div>
   );
 }
 
@@ -401,6 +429,7 @@ function readGazeExperiment(): {
 // 부가 설명 타이머는 가운데 블록 기준이고, 원본 PDF를 보는 동안에는 재지 않는다.
 type CenterReadingProps = {
   scrollRef: RefObject<HTMLElement | null>;
+  stepTimerRef: RefObject<HTMLElement | null>;
 };
 
 const LOOKING_AT_PDF_MESSAGE =
@@ -411,6 +440,7 @@ function WebcamGaze({
   dwellMsFor,
   onActiveBlockChange,
   scrollRef,
+  stepTimerRef,
   onFail,
   render,
 }: GazeSourceProps & CenterReadingProps & { onFail: () => void }) {
@@ -422,6 +452,7 @@ function WebcamGaze({
   const { activeBlockId, lookingAtText } = useCenterReading(
     gaze.point,
     scrollRef,
+    stepTimerRef,
   );
   useBlockExplain(activeBlockId, lookingAtText, {
     events,
@@ -461,6 +492,7 @@ function MouseGaze({
   dwellMsFor,
   onActiveBlockChange,
   scrollRef,
+  stepTimerRef,
   message,
   render,
 }: GazeSourceProps & CenterReadingProps & { message: string }) {
@@ -468,6 +500,7 @@ function MouseGaze({
   const { activeBlockId, lookingAtText } = useCenterReading(
     gaze.point,
     scrollRef,
+    stepTimerRef,
   );
   useBlockExplain(activeBlockId, lookingAtText, {
     events,

@@ -36,6 +36,25 @@ const ZONE_HYSTERESIS = 0.1;
 const VERTICAL_TOLERANCE = 0.4;
 const NEXT_OFFSET = nextZone - 0.5;
 const PREVIOUS_OFFSET = previousZone - 0.5;
+// 눈짓 구역에 이만큼(ms) 머문 뒤부터 넘김 타이머 막대를 보여준다. 넘기는 시간은 그대로고,
+// 시선이 구역을 잠깐 스칠 때 막대가 깜빡이지 않게 표시만 늦춘다.
+// TODO(demo): 임시값. 실제 웹캠으로 읽어 보고 조정한다.
+const TIMER_SHOW_DELAY_MS = 150;
+
+// 매 프레임 바뀌는 값이라 리렌더 없이 막대의 DOM만 직접 고친다.
+function drawStepTimer(
+  timer: HTMLElement | null,
+  side: "next" | "previous" | null,
+  progress = 0,
+) {
+  if (!timer) return;
+  if (!side) {
+    delete timer.dataset.side;
+    return;
+  }
+  timer.dataset.side = side;
+  timer.style.setProperty("--step-progress", String(Math.min(progress, 1)));
+}
 
 function blockElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>("[data-block-id]")];
@@ -72,20 +91,27 @@ function nearestToCenter(container: HTMLElement): number {
 
 // enabled가 아니면 아무것도 하지 않는다.
 // lookingAtText가 false면 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF 등)에 있어 넘기지 않는 중이다.
+// timerRef 요소에는 넘기기까지 남은 시간을 data-side와 --step-progress(0~1)로 알려 준다.
 export function useCenterReading(
   point: GazeState["point"],
   scrollRef: RefObject<HTMLElement | null>,
+  timerRef: RefObject<HTMLElement | null>,
   enabled = true,
 ): { activeBlockId: string | null; lookingAtText: boolean } {
   const [index, setIndex] = useState(0);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [lookingAtText, setLookingAtText] = useState(true);
   const pointRef = useRef(point);
+  const indexRef = useRef(index);
   const autoScrollUntil = useRef(0);
 
   useEffect(() => {
     pointRef.current = point;
   }, [point]);
+
+  useEffect(() => {
+    indexRef.current = index;
+  }, [index]);
 
   // 읽는 블록이 바뀌면 그 블록을 가운데로 데려온다.
   useEffect(() => {
@@ -200,11 +226,27 @@ export function useCenterReading(
         since = now;
         if (zone === "middle") lastStep = 0;
       }
-      if (zone === "middle" || now - since < glanceMs) return;
-      if (lastStep !== 0 && now - lastStep < repeatMs) return;
+      if (zone === "middle") {
+        drawStepTimer(timerRef.current, null);
+        return;
+      }
+
+      // 처음 눈짓이면 그쪽을 본 시각부터, 넘긴 뒤 계속 보는 중이면 마지막으로 넘긴 시각부터 잰다.
+      const repeating = lastStep !== 0 && lastStep + repeatMs > since + glanceMs;
+      const start = repeating ? lastStep : since;
+      const duration = repeating ? repeatMs : glanceMs;
+      const count = blockElements(container).length;
+      // 문서 끝에서는 더 넘어갈 곳이 없으니 막대를 보여주지 않는다.
+      const canStep =
+        zone === "next" ? indexRef.current < count - 1 : indexRef.current > 0;
+      drawStepTimer(
+        timerRef.current,
+        canStep && now - since >= TIMER_SHOW_DELAY_MS ? zone : null,
+        (now - start) / duration,
+      );
+      if (now - start < duration) return;
 
       lastStep = now;
-      const count = blockElements(container).length;
       setIndex((value) =>
         zone === "next"
           ? Math.min(value + 1, count - 1)
@@ -212,8 +254,12 @@ export function useCenterReading(
       );
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [enabled, scrollRef]);
+    const timer = timerRef.current;
+    return () => {
+      cancelAnimationFrame(frame);
+      drawStepTimer(timer, null);
+    };
+  }, [enabled, scrollRef, timerRef]);
 
   // 휠·스크롤바로 직접 옮기면 멈춘 곳에서 가운데에 가장 가까운 블록을 읽는 블록으로 삼는다.
   useEffect(() => {
