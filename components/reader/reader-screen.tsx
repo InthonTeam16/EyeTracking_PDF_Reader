@@ -1,6 +1,7 @@
 "use client";
 
 import { CameraIcon, Loader2Icon, MousePointer2Icon } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -36,6 +37,7 @@ import {
   useReaderBlocks,
   type ReaderDocument,
 } from "@/components/reader/use-reader-blocks";
+import { buttonVariants } from "@/components/ui/button";
 import { CalibrationOverlay } from "@/components/gaze/CalibrationOverlay";
 import { CameraGuide } from "@/components/gaze/FaceGuide";
 import { PostureNotice } from "@/components/gaze/PostureNotice";
@@ -59,7 +61,9 @@ export function ReaderScreen() {
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-background">
-      {doc ? (
+      {doc?.kind === "error" ? (
+        <ReaderFailureNotice message={doc.message} />
+      ) : doc ? (
         <ReaderContent doc={doc} />
       ) : (
         <p className="m-auto flex items-center gap-2 text-muted-foreground">
@@ -68,6 +72,22 @@ export function ReaderScreen() {
         </p>
       )}
     </main>
+  );
+}
+
+// 올린 파일을 열지 못하면 다른 문서로 바꿔 보여주지 않고 이유를 알린다.
+function ReaderFailureNotice({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="m-auto flex max-w-md flex-col items-center gap-5 px-6 text-center"
+    >
+      <p className="text-lg font-medium">파일을 열지 못했어요</p>
+      <p className="text-muted-foreground">{message}</p>
+      <Link href="/" className={buttonVariants({ variant: "outline" })}>
+        처음으로 돌아가기
+      </Link>
+    </div>
   );
 }
 
