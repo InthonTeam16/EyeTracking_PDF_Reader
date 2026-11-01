@@ -10,12 +10,6 @@ import type { GazeState } from "@/types";
 // 시선이 위·아래·가운데 중 어디인지만 알면 돼서 웹캠 좌표 오차에 강하다.
 
 const { nextZone, previousZone, glanceMs, repeatMs } = GAZE_CENTER_READING;
-// 분할 보기에서 어느 칸을 보는지: 시선 가로 위치가 칸 경계에서 화면 폭의 이 비율만큼
-// 확실히 넘어간 상태가 PANE_SWITCH_MS 이어질 때만 바꾼다. 웹캠 가로 오차(화면 폭 7~10%)를 고려했다.
-const PANE_MARGIN = 0.08;
-const PANE_SWITCH_MS = 400;
-// 가로 위치를 부드럽게 따라가는 정도(0~1). 작을수록 떨림에 강하다.
-const X_EASING = 0.15;
 // 사람이 직접 스크롤했는지 가리기 위해, 넘기며 스크롤한 뒤 이 시간(ms)은 직접 스크롤로 보지 않는다.
 const AUTO_SCROLL_MS = 700;
 // 기준점: 읽는 블록은 늘 칸 가운데에 있으니, 읽는 동안의 시선 높이를 그 사람의 "가운데"로 본다.
@@ -91,12 +85,14 @@ function nearestToCenter(container: HTMLElement): number {
 }
 
 // enabled가 아니면 아무것도 하지 않는다.
-// lookingAtText가 false면 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF 등)에 있어 넘기지 않는 중이다.
+// lookingAtText가 false면 분할 보기에서 원본 PDF를 손으로 조작하는 중이라 넘기지 않는 중이다.
 // timerRef 요소에는 넘기기까지 남은 시간을 data-side와 --step-progress(0~1)로 알려 준다.
+// holdUntilRef(performance.now() 기준 시각)까지 조작 중으로 본다.
 export function useCenterReading(
   point: GazeState["point"],
   scrollRef: RefObject<HTMLElement | null>,
   timerRef: RefObject<HTMLElement | null>,
+  holdUntilRef: RefObject<number>,
   enabled = true,
 ): { activeBlockId: string | null; lookingAtText: boolean } {
   const [index, setIndex] = useState(0);
@@ -160,10 +156,8 @@ export function useCenterReading(
     let since = 0;
     // 마지막으로 넘긴 시각. 눈이 가운데로 돌아오면 0으로 되돌린다.
     let lastStep = 0;
-    // 집중 읽기 칸을 보고 있는지. 분할 보기에서 원본 PDF를 볼 때는 넘기지 않는다.
+    // 원본 PDF를 조작하는 중이 아닌지. 조작하는 동안은 넘기지 않는다.
     let onText = true;
-    let pendingSince = 0;
-    let easedX: number | null = null;
     // 이 사람의 "가운데" 시선 높이(칸 높이 비율)
     let baseline = 0.5;
     let lastTick = 0;
@@ -177,42 +171,21 @@ export function useCenterReading(
       if (!container) return;
       const view = container.getBoundingClientRect();
 
-      // 어느 칸을 보는지: 가로 위치를 부드럽게 거르고, 칸 경계에서 여유 폭만큼
-      // 확실히 넘어간 상태가 이어질 때만 바꾼다 (경계 근처에서 왔다 갔다 하지 않게).
-      if (target) {
-        easedX =
-          easedX === null ? target.x : easedX + (target.x - easedX) * X_EASING;
-        // 여유 폭은 다른 칸과 맞닿은 쪽에만 둔다. 화면 끝에 붙은 쪽은 넘어갈 곳이 없다.
-        const margin = window.innerWidth * PANE_MARGIN;
-        const leftMargin = view.left <= 1 ? 0 : margin;
-        const rightMargin = view.right >= window.innerWidth - 1 ? 0 : margin;
-        const clearlyInside =
-          view.width > 0 &&
-          easedX >= view.left + leftMargin &&
-          easedX <= view.right - rightMargin;
-        const clearlyOutside =
-          view.width === 0 ||
-          easedX < view.left - leftMargin ||
-          easedX > view.right + rightMargin;
-        const wants = onText ? !clearlyOutside : clearlyInside;
-        if (wants !== onText) {
-          if (pendingSince === 0) pendingSince = now;
-          if (now - pendingSince >= PANE_SWITCH_MS) {
-            onText = wants;
-            pendingSince = 0;
-            setLookingAtText(onText);
-            // 집중 읽기로 돌아온 직후 눈의 위치 때문에 바로 넘어가지 않게 잠깐 쉰다.
-            zone = "middle";
-            since = now;
-            lastStep = now;
-          }
-        } else {
-          pendingSince = 0;
+      // 원본 PDF를 조작하는 동안만 멈춘다. 시선만으로는 멈추지 않는다
+      // (시선 가로 위치로 칸을 가리는 방식은 웹캠 오차로 엉뚱하게 멈춰 뺐다).
+      const held = now < holdUntilRef.current;
+      if (held === onText) {
+        onText = !held;
+        setLookingAtText(onText);
+        // 조작을 마친 직후 눈의 위치 때문에 바로 넘어가지 않게 잠깐 쉰다.
+        if (onText) {
+          zone = "middle";
+          since = now;
+          lastStep = now;
         }
       }
 
-      // 칸 판단이 바뀌기 전에도 지금 시선이 칸 밖이면 넘기지 않는다
-      // (원본 PDF 쪽으로 시선을 옮기는 순간 넘어가지 않게).
+      // 시선이 칸 밖(원본 PDF 등)에 있으면 넘기지 않는다.
       const inside =
         onText &&
         target &&
@@ -255,7 +228,8 @@ export function useCenterReading(
       }
 
       // 처음 눈짓이면 그쪽을 본 시각부터, 넘긴 뒤 계속 보는 중이면 마지막으로 넘긴 시각부터 잰다.
-      const repeating = lastStep !== 0 && lastStep + repeatMs > since + glanceMs;
+      const repeating =
+        lastStep !== 0 && lastStep + repeatMs > since + glanceMs;
       const start = repeating ? lastStep : since;
       const duration = repeating ? repeatMs : glanceMs;
       const count = blockElements(container).length;
@@ -282,7 +256,7 @@ export function useCenterReading(
       cancelAnimationFrame(frame);
       drawStepTimer(timer, null);
     };
-  }, [enabled, scrollRef, timerRef]);
+  }, [enabled, scrollRef, timerRef, holdUntilRef]);
 
   // 휠·스크롤바로 직접 옮기면 멈춘 곳에서 가운데에 가장 가까운 블록을 읽는 블록으로 삼는다.
   useEffect(() => {
