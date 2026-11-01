@@ -30,7 +30,7 @@ export function PdfUploadButton() {
     // 같은 파일을 다시 골라도 change가 일어나도록 비운다.
     input.value = "";
 
-    setPendingPdf(copy);
+    await setPendingPdf(copy);
     router.push("/reader");
   };
 
