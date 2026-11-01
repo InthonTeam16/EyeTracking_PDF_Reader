@@ -72,7 +72,7 @@ export function ReaderScreen() {
           className="fixed inset-0 z-30 flex items-center justify-center gap-2 bg-background text-muted-foreground"
         >
           <Loader2Icon className="size-4 animate-spin" />
-          PDF를 읽기 좋은 블록으로 재배치하는 중…
+          문서를 읽기 좋은 블록으로 재배치하는 중…
         </p>
       )}
     </main>
@@ -137,10 +137,16 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
     if (split) pdfHoldUntilRef.current = performance.now() + PDF_HOLD_MS;
   };
   // 원본 PDF에서 다시 찾은 블록별 실제 페이지. 찾기 전에는 toBlocks가 준 페이지를 쓴다.
-  const [resolvedPages, setResolvedPages] = useState<Map<
-    string,
-    number
-  > | null>(null);
+  const [resolved, setResolved] = useState<{
+    blocks: ReaderDocument["blocks"];
+    pages: Map<string, number>;
+  } | null>(null);
+  // 블록 id는 문서마다 겹치므로 이 문서에서 찾은 결과만 쓴다.
+  const resolvedPages = resolved?.blocks === blocks ? resolved.pages : null;
+  const setResolvedPages = useCallback(
+    (pages: Map<string, number>) => setResolved({ blocks, pages }),
+    [blocks],
+  );
   const pagedBlocks = useMemo(
     () =>
       resolvedPages
@@ -350,6 +356,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
       scrollRef={readingScrollRef}
       stepTimerRef={stepTimerRef}
       holdUntilRef={pdfHoldUntilRef}
+      documentBlocks={blocks}
       onFail={() => {
         setFallbackReason("웹캠을 쓸 수 없어 마우스 모드로 전환했어요.");
         setGazeMode("mouse");
@@ -364,6 +371,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
       scrollRef={readingScrollRef}
       stepTimerRef={stepTimerRef}
       holdUntilRef={pdfHoldUntilRef}
+      documentBlocks={blocks}
       message={fallbackReason ?? "마우스 커서를 시선 대신 쓰는 중이에요."}
       render={render}
     />
@@ -557,6 +565,7 @@ type CenterReadingProps = {
   scrollRef: RefObject<HTMLElement | null>;
   stepTimerRef: RefObject<HTMLElement | null>;
   holdUntilRef: RefObject<number>;
+  documentBlocks: ReaderDocument["blocks"];
 };
 
 function WebcamGaze({
@@ -566,6 +575,7 @@ function WebcamGaze({
   scrollRef,
   stepTimerRef,
   holdUntilRef,
+  documentBlocks,
   onFail,
   render,
 }: GazeSourceProps & CenterReadingProps & { onFail: () => void }) {
@@ -580,6 +590,7 @@ function WebcamGaze({
     scrollRef,
     stepTimerRef,
     holdUntilRef,
+    documentBlocks,
     gaze.calibrated,
   );
   useBlockExplain(activeBlockId, lookingAtText, {
@@ -633,6 +644,7 @@ function MouseGaze({
   scrollRef,
   stepTimerRef,
   holdUntilRef,
+  documentBlocks,
   message,
   render,
 }: GazeSourceProps & CenterReadingProps & { message: string }) {
@@ -642,6 +654,7 @@ function MouseGaze({
     scrollRef,
     stepTimerRef,
     holdUntilRef,
+    documentBlocks,
   );
   useBlockExplain(activeBlockId, lookingAtText, {
     events,

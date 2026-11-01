@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { getPendingPdf } from "@/components/reader/pdf-store";
 import mockBlocks from "@/lib/mock/blocks.json";
@@ -65,12 +65,18 @@ async function loadSampleDocument(name: string): Promise<ReaderDocument> {
   }
 }
 
-async function loadDocument(): Promise<ReaderDocument | ReaderFailure> {
-  // 처음 한 번만 읽으면 돼서 useSearchParams 대신 직접 읽는다 (페이지를 정적으로 유지).
+// 지금 열어야 할 문서: 샘플 이름이나 올린 파일. 없으면 null.
+async function currentSource(): Promise<string | File | null> {
+  // 들어올 때 한 번만 읽으면 돼서 useSearchParams 대신 직접 읽는다 (페이지를 정적으로 유지).
   const sample = new URLSearchParams(window.location.search).get("sample");
-  if (sample && SAMPLE_NAME.test(sample)) return loadSampleDocument(sample);
+  return sample && SAMPLE_NAME.test(sample) ? sample : getPendingPdf();
+}
 
-  const file = await getPendingPdf();
+async function loadDocument(
+  source: string | File | null,
+): Promise<ReaderDocument | ReaderFailure> {
+  if (typeof source === "string") return loadSampleDocument(source);
+  const file = source;
   if (!file) return { kind: "error", message: NO_FILE_MESSAGE };
   try {
     const doc = await fileToDocument(file);
@@ -78,8 +84,9 @@ async function loadDocument(): Promise<ReaderDocument | ReaderFailure> {
     // 스캔한 PDF나 빈 TXT처럼 읽을 글자가 없는 파일이다.
     return {
       kind: "error",
-      message:
-        "이 파일에서 글자를 찾지 못했어요. 스캔한 PDF는 아직 읽을 수 없어요.",
+      message: isTextFile(file)
+        ? "이 파일에 글자가 없어요. 내용이 있는 파일을 열어 주세요."
+        : "이 파일에서 글자를 찾지 못했어요. 스캔한 PDF는 아직 읽을 수 없어요.",
     };
   } catch (error) {
     console.warn("올린 파일을 열지 못했습니다.", error);
@@ -96,14 +103,21 @@ export function useReaderBlocks(): {
 } {
   const [doc, setDoc] = useState<ReaderDocument | ReaderFailure | null>(null);
   const [reloading, setReloading] = useState(false);
+  const loadedSource = useRef<string | File | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    loadDocument().then((next) => {
-      if (cancelled) return;
-      setDoc(next);
-      setReloading(false);
-    });
+    (async () => {
+      const source = await currentSource();
+      // 같은 문서로 돌아왔으면 다시 읽지 않아 읽던 위치와 즐겨찾기가 그대로 남는다.
+      if (!source || source !== loadedSource.current) {
+        const next = await loadDocument(source);
+        if (cancelled) return;
+        loadedSource.current = source;
+        setDoc(next);
+      }
+      if (!cancelled) setReloading(false);
+    })();
     return () => {
       cancelled = true;
       setReloading(true);

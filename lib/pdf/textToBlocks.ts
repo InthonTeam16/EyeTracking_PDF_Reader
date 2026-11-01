@@ -8,9 +8,14 @@ export function isTextFile(file: File): boolean {
 }
 
 // 한글 TXT는 UTF-8이 아니라 EUC-KR(윈도우 메모장 옛 형식)일 때가 많다.
-// UTF-8로 읽다가 깨지면 EUC-KR로 다시 읽는다.
+// UTF-8로 읽다가 깨지면 EUC-KR로 다시 읽는다. 메모장의 "유니코드" 저장은 UTF-16이고 첫 두 바이트로 알 수 있다.
 async function readText(file: File): Promise<string> {
   const bytes = await file.arrayBuffer();
+  const [first, second] = new Uint8Array(bytes.slice(0, 2));
+  if (first === 0xff && second === 0xfe)
+    return new TextDecoder("utf-16le").decode(bytes);
+  if (first === 0xfe && second === 0xff)
+    return new TextDecoder("utf-16be").decode(bytes);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {

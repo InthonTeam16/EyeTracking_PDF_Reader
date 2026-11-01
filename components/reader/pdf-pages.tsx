@@ -300,7 +300,7 @@ export function PdfPages({
   const revealPending = useRef(false);
   useEffect(() => {
     revealPending.current = true;
-  }, [revealKey, containerWidth]);
+  }, [revealKey, containerWidth, file]);
   useEffect(() => {
     if (!revealPending.current || !doc || !shown || !followKey) return;
     if (followKey === "pending") return;
@@ -644,7 +644,9 @@ function PdfCanvas({
     let cancelled = false;
     let task: RenderTask | null = null;
 
-    doc.getPage(pageNumber).then((page) => {
+    doc
+      .getPage(pageNumber)
+      .then((page) => {
       if (cancelled) return;
       const viewport = page.getViewport({
         scale: width / page.getViewport({ scale: 1 }).width,
@@ -675,7 +677,9 @@ function PdfCanvas({
         })
         // 크기가 바뀌어 취소된 렌더는 에러로 끝나므로 무시한다.
         .catch(() => {});
-    });
+      })
+      // 문서를 바꾸거나 페이지를 떠나 닫힌 문서에서 읽으면 에러로 끝난다.
+      .catch(() => {});
 
     return () => {
       cancelled = true;
