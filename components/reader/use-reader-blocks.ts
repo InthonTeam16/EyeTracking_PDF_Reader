@@ -31,7 +31,7 @@ export type ReaderDocument = {
 export type ReaderFailure = { kind: "error"; message: string };
 
 const NO_FILE_MESSAGE =
-  "열려 있는 파일이 없어요. 새로고침하면 올린 파일이 사라지니 다시 열어 주세요.";
+  "열려 있는 파일이 없어요. 처음 화면에서 파일을 열어 주세요.";
 
 async function fileToDocument(file: File): Promise<ReaderDocument | null> {
   const text = isTextFile(file);
@@ -70,7 +70,7 @@ async function loadDocument(): Promise<ReaderDocument | ReaderFailure> {
   const sample = new URLSearchParams(window.location.search).get("sample");
   if (sample && SAMPLE_NAME.test(sample)) return loadSampleDocument(sample);
 
-  const file = getPendingPdf();
+  const file = await getPendingPdf();
   if (!file) return { kind: "error", message: NO_FILE_MESSAGE };
   try {
     const doc = await fileToDocument(file);
@@ -87,19 +87,28 @@ async function loadDocument(): Promise<ReaderDocument | ReaderFailure> {
   }
 }
 
-// ?sample= → 업로드한 파일 순서로 문서를 정한다. 불러오는 중이면 null.
-export function useReaderBlocks(): ReaderDocument | ReaderFailure | null {
+// ?sample= → 업로드한 파일 순서로 문서를 정한다. 처음 불러오는 중이면 doc이 null이다.
+// 페이지가 숨겨졌다 돌아오면 이전 상태가 남아 있어 다시 읽는 동안 reloading이 true다.
+// 새 파일을 고르고 돌아온 경우일 수 있으니 그동안 이전 문서를 그대로 보여주면 안 된다.
+export function useReaderBlocks(): {
+  doc: ReaderDocument | ReaderFailure | null;
+  reloading: boolean;
+} {
   const [doc, setDoc] = useState<ReaderDocument | ReaderFailure | null>(null);
+  const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     loadDocument().then((next) => {
-      if (!cancelled) setDoc(next);
+      if (cancelled) return;
+      setDoc(next);
+      setReloading(false);
     });
     return () => {
       cancelled = true;
+      setReloading(true);
     };
   }, []);
 
-  return doc;
+  return { doc, reloading };
 }

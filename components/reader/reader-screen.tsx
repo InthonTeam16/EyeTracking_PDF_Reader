@@ -57,16 +57,20 @@ import type { GazeEvents, GazeState } from "@/types";
 const PDF_HOLD_MS = 1500;
 
 export function ReaderScreen() {
-  const doc = useReaderBlocks();
+  const { doc, reloading } = useReaderBlocks();
 
   return (
     <main className="flex h-dvh flex-col overflow-hidden bg-background">
-      {doc?.kind === "error" ? (
+      {doc && doc.kind !== "error" && <ReaderContent doc={doc} />}
+      {doc?.kind === "error" && !reloading && (
         <ReaderFailureNotice message={doc.message} />
-      ) : doc ? (
-        <ReaderContent doc={doc} />
-      ) : (
-        <p className="m-auto flex items-center gap-2 text-muted-foreground">
+      )}
+      {/* 다시 읽는 동안에도 리더를 내리지 않아 시선 보정 결과가 남는다. */}
+      {(!doc || reloading) && (
+        <p
+          data-testid="reader-loading"
+          className="fixed inset-0 z-30 flex items-center justify-center gap-2 bg-background text-muted-foreground"
+        >
           <Loader2Icon className="size-4 animate-spin" />
           PDF를 읽기 좋은 블록으로 재배치하는 중…
         </p>
