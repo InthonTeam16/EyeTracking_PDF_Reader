@@ -24,7 +24,7 @@ export function PdfUploadButton() {
         type: file.type,
       });
     } catch (error) {
-      // 복사에 실패해도 원래 파일로 계속한다. 리더에서 다시 읽어 보고, 안 되면 샘플을 보여준다.
+      // 복사에 실패해도 원래 파일로 계속한다. 리더에서 다시 읽어 보고, 안 되면 이유를 안내한다.
       console.warn("올린 파일을 미리 읽지 못했습니다.", error);
     }
     // 같은 파일을 다시 골라도 change가 일어나도록 비운다.
