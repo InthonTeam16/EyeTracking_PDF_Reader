@@ -50,7 +50,7 @@ import type { PostureIssue } from "@/lib/gaze/posture";
 import { cn } from "@/lib/utils";
 import type { GazeEvents, GazeState } from "@/types";
 
-// 원본 PDF 조작이 끝난 뒤 이 시간(ms)이 지나야 다시 눈짓으로 넘긴다.
+// 원본 PDF 조작이 끝난 뒤 이 시간(ms)이 지나야 다시 시선으로 어느 칸을 보는지 판단한다.
 // TODO(demo): 임시값. 실제로 써 보고 조정한다.
 const PDF_HOLD_MS = 1500;
 
@@ -107,7 +107,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
   const readingScrollRef = useRef<HTMLDivElement>(null);
   const stepTimerRef = useRef<HTMLDivElement>(null);
   // 분할 보기에서 원본 PDF를 손으로 조작하면 이 시각까지 집중 읽기를 멈춘다.
-  // 시선만으로는 멈추지 않는다 (웹캠 가로 오차로 엉뚱하게 멈춰서 뺐다).
+  // 웹캠 시선이 흔들려 집중 읽기 칸으로 잡혀도 조작 중에 넘어가지 않게 하기 위해서다.
   const pdfHoldUntilRef = useRef(0);
   const holdForPdf = () => {
     if (split) pdfHoldUntilRef.current = performance.now() + PDF_HOLD_MS;
@@ -159,7 +159,7 @@ function ReaderContent({ doc }: { doc: ReaderDocument }) {
     onPdf: boolean,
     webcam?: CalibratedWebcam,
   ) => {
-    // 분할 보기에서 원본 PDF를 조작하는 중이면 읽기가 멈췄다는 걸 보여준다.
+    // 분할 보기에서 원본 PDF를 보거나 조작하는 중이면 읽기가 멈췄다는 걸 보여준다.
     const viewingPdf = split && onPdf;
     const activeBlock = pagedBlocks.find(
       (block) => block.id === gaze.activeBlockId,
@@ -491,7 +491,7 @@ type CalibratedWebcam = {
 };
 
 // 읽는 블록 기준으로 설명 타이머를 재고, 블록이 바뀌면 알린다.
-// 원본 PDF를 조작하는 동안(lookingAtText가 false)에는 타이머를 재지 않는다.
+// 원본 PDF를 보거나 조작하는 동안(lookingAtText가 false)에는 타이머를 재지 않는다.
 function useBlockExplain(
   activeBlockId: string | null,
   lookingAtText: boolean,
@@ -528,7 +528,7 @@ function readGazeExperiment(): {
 
 // 읽는 블록을 가운데에 고정하고 눈짓으로 한 블록씩 넘긴다 (use-center-reading.ts).
 // 시선 좌표로 블록을 바로 고르는 방식은 웹캠 오차가 커서 쓰지 않는다.
-// 부가 설명 타이머는 가운데 블록 기준이고, 원본 PDF를 조작하는 동안에는 재지 않는다.
+// 부가 설명 타이머는 가운데 블록 기준이고, 원본 PDF를 보거나 조작하는 동안에는 재지 않는다.
 type CenterReadingProps = {
   scrollRef: RefObject<HTMLElement | null>;
   stepTimerRef: RefObject<HTMLElement | null>;
