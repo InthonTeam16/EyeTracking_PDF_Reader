@@ -91,12 +91,15 @@ function nearestToCenter(container: HTMLElement): number {
 }
 
 // enabled가 아니면 아무것도 하지 않는다.
-// lookingAtText가 false면 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF 등)에 있어 넘기지 않는 중이다.
+// lookingAtText가 false면 시선이 집중 읽기 칸 밖(분할 보기의 원본 PDF 등)에 있거나
+// 원본 PDF를 손으로 조작하는 중이라 넘기지 않는 중이다.
 // timerRef 요소에는 넘기기까지 남은 시간을 data-side와 --step-progress(0~1)로 알려 준다.
+// holdUntilRef(performance.now() 기준 시각)까지는 시선과 상관없이 조작 중으로 본다.
 export function useCenterReading(
   point: GazeState["point"],
   scrollRef: RefObject<HTMLElement | null>,
   timerRef: RefObject<HTMLElement | null>,
+  holdUntilRef: RefObject<number>,
   enabled = true,
 ): { activeBlockId: string | null; lookingAtText: boolean } {
   const [index, setIndex] = useState(0);
@@ -160,7 +163,7 @@ export function useCenterReading(
     let since = 0;
     // 마지막으로 넘긴 시각. 눈이 가운데로 돌아오면 0으로 되돌린다.
     let lastStep = 0;
-    // 집중 읽기 칸을 보고 있는지. 분할 보기에서 원본 PDF를 볼 때는 넘기지 않는다.
+    // 집중 읽기 칸을 보고 있는지. 분할 보기에서 원본 PDF를 보거나 조작할 때는 넘기지 않는다.
     let onText = true;
     let pendingSince = 0;
     let easedX: number | null = null;
@@ -176,6 +179,14 @@ export function useCenterReading(
       const target = pointRef.current;
       if (!container) return;
       const view = container.getBoundingClientRect();
+
+      // 원본 PDF를 조작하는 중이면 기다리지 않고 바로 멈춘다. 조작이 끝나면 아래의 시선 판단으로 돌아온다.
+      const held = now < holdUntilRef.current;
+      if (held && onText) {
+        onText = false;
+        pendingSince = 0;
+        setLookingAtText(false);
+      }
 
       // 어느 칸을 보는지: 가로 위치를 부드럽게 거르고, 칸 경계에서 여유 폭만큼
       // 확실히 넘어간 상태가 이어질 때만 바꾼다 (경계 근처에서 왔다 갔다 하지 않게).
@@ -194,7 +205,7 @@ export function useCenterReading(
           view.width === 0 ||
           easedX < view.left - leftMargin ||
           easedX > view.right + rightMargin;
-        const wants = onText ? !clearlyOutside : clearlyInside;
+        const wants = held ? false : onText ? !clearlyOutside : clearlyInside;
         if (wants !== onText) {
           if (pendingSince === 0) pendingSince = now;
           if (now - pendingSince >= PANE_SWITCH_MS) {
@@ -255,7 +266,8 @@ export function useCenterReading(
       }
 
       // 처음 눈짓이면 그쪽을 본 시각부터, 넘긴 뒤 계속 보는 중이면 마지막으로 넘긴 시각부터 잰다.
-      const repeating = lastStep !== 0 && lastStep + repeatMs > since + glanceMs;
+      const repeating =
+        lastStep !== 0 && lastStep + repeatMs > since + glanceMs;
       const start = repeating ? lastStep : since;
       const duration = repeating ? repeatMs : glanceMs;
       const count = blockElements(container).length;
@@ -282,7 +294,7 @@ export function useCenterReading(
       cancelAnimationFrame(frame);
       drawStepTimer(timer, null);
     };
-  }, [enabled, scrollRef, timerRef]);
+  }, [enabled, scrollRef, timerRef, holdUntilRef]);
 
   // 휠·스크롤바로 직접 옮기면 멈춘 곳에서 가운데에 가장 가까운 블록을 읽는 블록으로 삼는다.
   useEffect(() => {
