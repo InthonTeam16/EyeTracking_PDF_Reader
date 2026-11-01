@@ -38,6 +38,13 @@ export function startFaceTracking({
       return;
     }
     stream = userStream;
+    // 카메라가 뽑히거나 권한이 끊기면 영상이 멈춘 채 시선이 마지막 좌표에 남는다.
+    // 직접 끌 때(stop)는 일어나지 않는 이벤트다.
+    userStream.getTracks().forEach((track) => {
+      track.addEventListener("ended", () => {
+        if (!cancelled) onError(new Error("카메라 연결이 끊겼습니다."));
+      });
+    });
 
     // TODO(demo): 캘리브레이션 구현 후 미리보기를 숨긴다.
     const element = document.createElement("video");

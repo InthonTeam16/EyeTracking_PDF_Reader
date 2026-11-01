@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { Block, ExplainRequest, ExplainResponse } from "@/types";
 
@@ -31,6 +31,18 @@ export function useExplanations(blocks: Block[]) {
     {},
   );
   const [favorites, setFavorites] = useState<Favorite[]>([]);
+  // 블록 id는 문서마다 겹치므로(p1-b0 등), 문서가 바뀌면 이전 문서의 설명을 모두 비운다.
+  const [ownerBlocks, setOwnerBlocks] = useState(blocks);
+  if (ownerBlocks !== blocks) {
+    setOwnerBlocks(blocks);
+    setOpenBlockId(null);
+    setExplanations({});
+    setFavorites([]);
+  }
+  const currentBlocks = useRef(blocks);
+  useEffect(() => {
+    currentBlocks.current = blocks;
+  }, [blocks]);
 
   // 설명을 다 받은 블록만 즐겨찾기할 수 있다. 이미 있으면 해제한다.
   const toggleFavorite = (blockId: string) => {
@@ -55,8 +67,11 @@ export function useExplanations(blocks: Block[]) {
       .filter(Boolean)
       .join("\n");
 
-    const save = (explanation: Explanation) =>
+    const save = (explanation: Explanation) => {
+      // 받는 사이 문서가 바뀌었으면 같은 id의 다른 문단에 붙지 않게 버린다.
+      if (currentBlocks.current !== blocks) return;
       setExplanations((prev) => ({ ...prev, [blockId]: explanation }));
+    };
 
     save({ status: "loading" });
     fetchExplanation({ blockText: blocks[index].text, context })

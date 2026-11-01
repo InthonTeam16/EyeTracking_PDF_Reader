@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EyeTracking PDF Reader",
+  title: "눈길 · EyeTracking PDF Reader",
   description: "웹캠 아이트래킹으로 읽는 부분을 따라가며 도와주는 PDF 리더",
 };
 

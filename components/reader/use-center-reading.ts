@@ -100,11 +100,19 @@ export function useCenterReading(
   scrollRef: RefObject<HTMLElement | null>,
   timerRef: RefObject<HTMLElement | null>,
   holdUntilRef: RefObject<number>,
+  // 지금 문서. 바뀌면 첫 블록부터 다시 읽는다.
+  document: unknown,
   enabled = true,
 ): { activeBlockId: string | null; lookingAtText: boolean } {
   const [index, setIndex] = useState(0);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [lookingAtText, setLookingAtText] = useState(true);
+  const [currentDocument, setCurrentDocument] = useState(document);
+  if (currentDocument !== document) {
+    setCurrentDocument(document);
+    setIndex(0);
+    setActiveId(null);
+  }
   const pointRef = useRef(point);
   const indexRef = useRef(index);
   const autoScrollUntil = useRef(0);
@@ -133,7 +141,7 @@ export function useCenterReading(
       setActiveId(element.getAttribute("data-block-id")),
     );
     return () => cancelAnimationFrame(frame);
-  }, [enabled, index, scrollRef]);
+  }, [enabled, index, document, scrollRef]);
 
   // 팝업이 닫히거나 칸 폭·글자 크기가 바뀌면 본문 높이가 달라져 읽는 블록이 가운데에서 밀린다.
   // 직접 옮긴 위치는 그대로 둔다.
